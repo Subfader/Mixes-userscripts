@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hearthis.at
 // @author       Subfader
-// @version      2026.11.18.4
+// @version      2026.11.18.5
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
 // @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
@@ -13,7 +13,7 @@
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/global.js?v-hearthis.at_15
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/mixesdb_modal/funcs.js?v-hearthis.at_3
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/tracklist_editor/funcs.js?v-hearthis.at_1
-// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/toolkit/funcs.js?v-hearthis.at_37
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/toolkit/funcs.js?v-hearthis.at_38
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/title_definitions.js?v_58
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/title_builder.js?v_92
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/tracklist_detector.js?v_15
@@ -158,26 +158,74 @@ function getHearthisToolkitTarget() {
 }
 
 /*
- * Everything below reads the page out of the <meta> tags and the DOM, so it all has to run
- * again once hearthis has swapped in another track - see onUrlChange() in global.js.
+ * The track the page shows, read off the header's track item ("group/track" li in the hero).
+ * hearthis.at does NOT update its <meta> tags on an in-site click (seen 2026-11-18): after
+ * profile -> track, hearthis:embed:id is missing and og:url / og:title still describe the
+ * profile. The metas answered "undefined" as the ID, so "https://hearthis.at/undefined/" went
+ * into the MixesDB player search and its insource: search - which found 5 unrelated pages
+ * whose text holds the word, and the toolkit listed them as this player's pages.
+ * The li is re-rendered with the page, so it is right after a fresh load and after a click:
+ *   data-trackid           numeric ID, e.g. 14747697 (the short/embed URL)
+ *   data-detail            canonical path, e.g. /upmix/2018-02-08-lake-people-fmb-mixtape-92/
+ *   data-playlist-title    the track title
+ * Answers null where there is no such li (old layout) - the caller falls back to the metas,
+ * which are right there because the old layout reloaded the document.
+ */
+function getHearthisHeroTrack( toolkitTarget ) {
+    var li = toolkitTarget.find('li[class*="group/track"]').first();
+    if( li.length == 0 ) return null;
+
+    return {
+        id:     li.attr("data-trackid") || li.attr("data-id") || "",
+        detail: li.attr("data-detail") || "",
+        title:  li.attr("data-playlist-title") || ""
+    };
+}
+
+/*
+ * Everything below reads the page out of the DOM (and the <meta> tags in the old layout), so it
+ * all has to run again once hearthis has swapped in another track - see onUrlChange() in global.js.
  */
 function runHearthisPage() {
-    var pageUrl_meta = $('meta[property="og:url"]').attr("content"), // e.g. https://hearthis.at/andrei-mor/01-cultureshockandgrafix-radio1sessentialmix-sat-01-18-2025-talion/">
-        pageId_meta = $('meta[property="hearthis:embed:id"]').attr("content"), // e.g. 11703627
-        titleText = $('meta[property="og:title"]').attr("content") || document.title.replace(/\s*\|\s*HearThis.*$/i, ""), // e.g. Culture Shock &amp; Grafix - Radio 1's Essential Mix 2025-01-18
-        toolkitTarget = getHearthisToolkitTarget(),
-        pageUrl = pageUrl_meta || removeParametersFromUrl( location.href ),
-        pageId = pageId_meta;
+    var toolkitTarget = getHearthisToolkitTarget(),
+        heroTrack = getHearthisHeroTrack( toolkitTarget ),
+        pageUrl, pageId, titleText;
 
-    if( !pageId && isHearthisIdUrl(pageUrl) ) {
-        pageId = pageUrl.split("/")[3];
+    if( heroTrack ) {
+        pageId = heroTrack.id;
+        pageUrl = heroTrack.detail ? "https://hearthis.at" + heroTrack.detail : "";
+        titleText = heroTrack.title || document.title.replace(/\s*\|.*$/, "");
+        log( "Page read off the hero's track item (the metas go stale on in-site clicks)." );
+    } else {
+        // old layout: full document loads, so the metas belong to this page
+        pageId = $('meta[property="hearthis:embed:id"]').attr("content") || ""; // e.g. 11703627
+        pageUrl = $('meta[property="og:url"]').attr("content") || removeParametersFromUrl( location.href ); // e.g. https://hearthis.at/andrei-mor/01-cultureshockandgrafix-radio1sessentialmix-sat-01-18-2025-talion/
+        titleText = $('meta[property="og:title"]').attr("content") || document.title.replace(/\s*\|\s*HearThis.*$/i, ""); // e.g. Culture Shock &amp; Grafix - Radio 1's Essential Mix 2025-01-18
+
+        if( !pageId && isHearthisIdUrl(pageUrl) ) {
+            pageId = pageUrl.split("/")[3];
+        }
     }
 
     logVar( "pageUrl", pageUrl );
     logVar( "pageId", pageId );
+    logVar( "titleText", titleText );
     logVar( "toolkitTarget.length", toolkitTarget.length );
 
-    if( urlPath(2) && toolkitTarget.length == 1 && pageUrl != "" && pageId != "" ) {
+    /*
+     * Never let a missing value become part of a URL we send to an API: "undefined" (or "null")
+     * concatenated into the short URL is a real-looking player URL to the MixesDB search, and its
+     * insource: fallback matches every page whose text holds the word. A non-numeric ID or a
+     * detail URL that is not /<user>/<permalink>/ means the page was not read - no toolkit then.
+     */
+    var idOk = /^\d+$/.test( pageId || "" ),
+        urlOk = ( /^https:\/\/hearthis\.at\/[^\/]+\/[^\/]+\/$/.test( pageUrl || "" ) || isHearthisIdUrl( pageUrl || "" ) ) && !/\/(undefined|null)(\/|$)/.test( pageUrl );
+
+    if( toolkitTarget.length == 1 && ( !idOk || !urlOk ) ) {
+        log( "runHearthisPage: track page, but the ID or the URL could not be read (pageId: " + pageId + ", pageUrl: " + pageUrl + ") - no toolkit, nothing sent to MixesDB." );
+    }
+
+    if( urlPath(2) && toolkitTarget.length == 1 && idOk && urlOk ) {
         logFunc( "On player pages" );
 
         var pageUrl_short = 'https://hearthis.at/'+pageId+'/';
@@ -199,6 +247,12 @@ onUrlChange( runHearthisPage, { runNow: true } );
 })();
 
 /* ## Changelog
+ * 2026.11.18.5  Toolkit after an in-site click (profile -> track): hearthis.at leaves its <meta> tags on the
+ *               previous page, so the ID came out "undefined" and "https://hearthis.at/undefined/" went to the
+ *               MixesDB search, whose insource: fallback listed 5 unrelated pages. og:url and og:title were
+ *               the profile's too. The page is now read off the header's track item (data-trackid,
+ *               data-detail, data-playlist-title); no toolkit and no request when the ID or URL is not
+ *               valid. getToolkit() refuses such URLs as well (toolkit/funcs.js v38).
  * 2026.11.18.4  TrackId.net icon in the toolkit shows again (global.css, cacheVersion 29): hearthis.at's
  *               stylesheet sets img { font-size: 0 }, and the icon's height cap is in em, i.e. relative to the
  *               image's own font size - so it was capped at 0px and rendered as an empty 2x0 box. The icons

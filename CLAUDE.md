@@ -171,6 +171,14 @@ fine and every page after it is stale or empty:
 - Renaming/moving a script: update `@namespace`/`@updateURL`/`@downloadURL` if present, since users' managers track updates by these
 
 ## Things to Avoid
+- **Never send a URL built from a missing value to any API** - no `/undefined/`, `/null`,
+  `=NaN`, empty ID. String concatenation turns an unread value into a real-looking URL, and the
+  MixesDB search's `insource:` fallback then matches every page whose text holds the word
+  (hearthis.at, 2026-11-18: `https://hearthis.at/undefined/` listed 5 unrelated pages as the
+  player's). Validate every value read off a page (an ID is digits, a URL has the expected
+  shape) BEFORE building a URL from it, and skip the request with a log line when it fails.
+  `toolkit_isBrokenUrl()` in `shared/toolkit/funcs.js` guards `getToolkit()` as the net under
+  all site scripts; new API callers need the same check.
 - Don't bundle multiple unrelated scripts into one file
 - Don't use broad `@match` patterns that could break other sites
 - Don't add remote `@require`/`@resource` from untrusted or unpinned sources

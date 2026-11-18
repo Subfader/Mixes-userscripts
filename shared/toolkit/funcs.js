@@ -767,8 +767,36 @@ function pageCreated_vs_lastEdit( pageCreationTimestamp, lastEditTimestamp ) {
  * Gating URLs before running actual func
  * E.g. URL variants: take 1 url, create 2nd variant, send each to getToolkit_func
  */
+/*
+ * toolkit_isBrokenUrl
+ * True for a URL that is no URL of a real player: empty, not a string, or carrying a path
+ * segment / query value that is a JS missing value turned into text ("undefined", "null",
+ * "NaN"). See the guard at the top of getToolkit().
+ */
+function toolkit_isBrokenUrl( url ) {
+    if( typeof url !== "string" || url.trim() === "" ) return true;
+    return /[\/=](undefined|null|NaN)(?=[\/?&#]|$)/.test( url );
+}
+
 function getToolkit( thisUrl, type, outputType="detail page", wrapper, insertType="append", titleText="", linkClass="", max_toolboxIterations=1, embedUrl="", siteHasTl="", playerOrder=0 ) {
     logFunc( "getToolkit" );
+
+    /*
+     * Never send a URL built from a missing value to the MixesDB API. A site script that
+     * concatenates an unread ID ("https://hearthis.at/" + undefined + "/") hands over a URL that
+     * looks real: the player search answers empty, and its insource: fallback then matches every
+     * page whose text holds the word "undefined" - the toolkit listed 5 unrelated pages as this
+     * player's (hearthis.at, 2026-11-18). The site scripts guard their own values; this is the
+     * net under all of them. An embedUrl that is broken is dropped, the main URL stops it all.
+     */
+    if( toolkit_isBrokenUrl( thisUrl ) ) {
+        log( "getToolkit: refused - the player URL carries a missing value, nothing is sent to MixesDB: " + thisUrl );
+        return;
+    }
+    if( embedUrl && toolkit_isBrokenUrl( embedUrl ) ) {
+        log( "getToolkit: dropped the embed URL - it carries a missing value: " + embedUrl );
+        embedUrl = "";
+    }
 
     var urlDomain = getDomain_fromUrlStr( thisUrl );
 

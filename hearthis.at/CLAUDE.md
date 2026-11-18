@@ -38,3 +38,15 @@
   icon rendered as a 2x0 box. `shared/global.css` gives `img.tidSubmit-icon` and
   `img.mdb-domainIcon` `font-size: inherit`. A new em-sized icon class needs to go into that
   rule too, or be sized in px.
+
+## Reading the track: hero item, not the metas
+- hearthis.at does NOT update its `<meta>` tags on an in-site click. After profile -> track,
+  `hearthis:embed:id` is gone and `og:url` / `og:title` still describe the profile. Only a fresh
+  document load has them right, which is why the old code worked when tested by reload.
+- `getHearthisHeroTrack()` reads the header's `group/track` li instead, which is re-rendered
+  with the page: `data-trackid` (numeric ID), `data-detail` (`/<user>/<permalink>/`),
+  `data-playlist-title`. The metas are only the fallback for the old layout.
+- `runHearthisPage()` validates both before anything is requested: ID digits only, URL
+  `/<user>/<permalink>/` or the numeric short form. See the root CLAUDE.md rule on missing
+  values in URLs.
+- To test SPA behaviour, open a profile and click a track - never only reload the track page.

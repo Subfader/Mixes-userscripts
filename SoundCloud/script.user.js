@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         SoundCloud
 // @author       Subfader
-// @version      2026.11.18.1
+// @version      2026.11.18.2
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
 // @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
@@ -12,7 +12,7 @@
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/global.js?v-SoundCloud_49
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/mixesdb_modal/funcs.js?v-SoundCloud_3
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/tracklist_editor/funcs.js?v-SoundCloud_17
-// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/toolkit/funcs.js?v-SoundCloud_131
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/toolkit/funcs.js?v-SoundCloud_132
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/title_definitions.js?v_58
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/title_builder.js?v_92
 // @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/tracklist_detector.js?v_15
@@ -2018,6 +2018,11 @@ log( "script.user.js IIFE finished - all handlers registered." );
 
 /*
  * Changelog
+ *
+ * 2026.11.18.2
+ * Toolkit (toolkit/funcs.js v132): getToolkit() refuses a player URL carrying a missing value
+ * ("/undefined/", "/null", "=NaN") instead of sending it to the MixesDB search, whose insource:
+ * fallback matched unrelated pages holding the word. A broken embed URL is dropped. Found on hearthis.at.
  *
  * 2026.11.18.1
  * Moved to github.com/Subfader/Mixes-userscripts: @name drops " (by MixesDB)", @author is "Subfader",
