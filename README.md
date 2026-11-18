@@ -1,5 +1,8 @@
 # Mixes userscripts
 
+> **For private use only.** This repo is public only so the scripts can load their shared
+> files by plain URL, without access tokens. No support, no guarantees.
+
 Userscripts for mix related websites. They change the look and behaviour of sites like SoundCloud, hearthis.at and TrackId.net, e.g. by adding copy-paste-ready tracklists in wiki syntax for MixesDB.
 
 To install a script, add a userscript manager like Tampermonkey to your browser, then click
