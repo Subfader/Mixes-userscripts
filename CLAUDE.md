@@ -14,7 +14,7 @@ Userscripts that help contributors of the mixesdb.com (MixesDB) Wiki.
   `~/Documents/GitHub/userscripts`). Only hearthis.at, SoundCloud and TrackId.net came over,
   plus everything they load. The other scripts (Mixcloud, YouTube, RA, 1001 Tracklists, the
   Tracklist box scripts, MixesDB Userscripts Helper, Tracklist Cue Switcher, ...) stay there.
-- On the port every `@name` lost its ` (by MixesDB)` suffix and every URL that loads code or CSS
+- On the port every `@name` lost its ` (by MixesDB)` suffix, `@author` became `Subfader`, and every URL that loads code or CSS
   was moved from `raw.githubusercontent.com/mixesdb/userscripts/` to
   `raw.githubusercontent.com/Subfader/Mixes-userscripts/`. That base is hard-coded in three
   places besides the headers: `githubPath_raw` in `shared/global.js`, and the absolute CSS URLs
@@ -94,7 +94,7 @@ Every script must start with a complete `==UserScript==` metadata block:
 - `@match` / `@include` - as narrow as possible, never `*://*/*` unless truly required
 - `@require` - Update version paramters in other script URLs of they got changes
 - `@grant` - list only what's actually used, default to `none` if no GM_* API is needed
-- `@author` - keep consistent across scripts
+- `@author` - `Subfader`, the same in every script (the old repo used `User:Martin@MixesDB (Subfader@GitHub)`)
 
 ## Links We Add
 - Open in the **same tab by default** - leave the new-tab decision to the user (cmd/ctrl/middle-click). Don't reach for `target="_blank"` just because a link leads off-site.

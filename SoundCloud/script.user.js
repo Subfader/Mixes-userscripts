@@ -1,6 +1,6 @@
 // ==UserScript==
 // @name         SoundCloud
-// @author       User:Martin@MixesDB (Subfader@GitHub)
+// @author       Subfader
 // @version      2026.11.18.1
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
@@ -2020,7 +2020,7 @@ log( "script.user.js IIFE finished - all handlers registered." );
  * Changelog
  *
  * 2026.11.18.1
- * Moved to github.com/Subfader/Mixes-userscripts: @name drops " (by MixesDB)",
+ * Moved to github.com/Subfader/Mixes-userscripts: @name drops " (by MixesDB)", @author is "Subfader",
  * @updateURL/@downloadURL and every @require and CSS URL load from the new repo.
  *
  * 2026.09.04.4
