@@ -1,8 +1,9 @@
-# MixesDB userscripts
+# Mixes userscripts
 
-MixesDB userscripts change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. by adding copy-paste-ready tracklists in wiki syntax.
+Userscripts for mix related websites. They change the look and behaviour of sites like SoundCloud, hearthis.at and TrackId.net, e.g. by adding copy-paste-ready tracklists in wiki syntax for MixesDB.
 
-See https://www.mixesdb.com/w/Help:MixesDB_userscripts for installation and general help.
+To install a script, add a userscript manager like Tampermonkey to your browser, then click
+the **Install** link in the script's README.
 
 ## The scripts
 
@@ -21,18 +22,18 @@ Shared across the site scripts, in [shared/](shared/): the [toolkit](shared/tool
 [Tracklist_Cue_Switcher/](Tracklist_Cue_Switcher/) only holds `script.funcs.js`, which the
 TrackId.net script loads. The Tracklist Cue Switcher userscript itself is not part of this repo.
 
-## Moved from mixesdb/userscripts
+## Origin
 
-These three scripts used to be "SoundCloud (by MixesDB)", "TrackId.net (by MixesDB)" and
-"hearthis.at (by MixesDB)" in [mixesdb/userscripts](https://github.com/mixesdb/userscripts).
-Your userscript manager treats the renamed ones as new scripts, so after installing them from
-here, uninstall the old "(by MixesDB)" copies – otherwise both run on the same page.
+This repo is not a fork of the official MixesDB userscripts in
+[mixesdb/userscripts](https://github.com/mixesdb/userscripts) and is developed independently.
+It started from three scripts copied from there: "SoundCloud (by MixesDB)",
+"TrackId.net (by MixesDB)" and "hearthis.at (by MixesDB)". Your userscript manager treats the
+ones from here as different scripts, so if you have the "(by MixesDB)" copies installed,
+uninstall them – otherwise both run on the same page.
 
-The other scripts (Mixcloud, YouTube, RA, 1001 Tracklists, the tracklist box scripts,
-MixesDB Userscripts Helper, Tracklist Cue Switcher, ...) are still in the old repo. The Page
-Creator and the tracklist importer need the
+The Page Creator and the tracklist importer need the
 [MixesDB Userscripts Helper](https://github.com/mixesdb/userscripts/tree/main/MixesDB_Userscripts_Helper/)
-installed from there.
+on mixesdb.com, which is installed from the official repo.
 
 ## Issues
 

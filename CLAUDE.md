@@ -10,6 +10,8 @@ Userscripts that help contributors of the mixesdb.com (MixesDB) Wiki.
 - `TLE`/ `TLE API`: MixesDB's Tracklist Editor API called in `shared/tracklist_editor/funcs.js` –> `function apiTracklist()`
 
 ## Origin of this repo
+- Independent repo, NOT a fork of `mixesdb/userscripts` (the official MixesDB userscripts).
+  Docs must not present it as the official MixesDB scripts or as a mirror of that repo.
 - Ported on 2026-11-18 from `mixesdb/userscripts` (GitHub; local checkout was
   `~/Documents/GitHub/userscripts`). Only hearthis.at, SoundCloud and TrackId.net came over,
   plus everything they load. The other scripts (Mixcloud, YouTube, RA, 1001 Tracklists, the

@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hearthis.at
 // @author       Subfader
-// @version      2026.11.18.1
+// @version      2026.11.18.2
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
 // @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
@@ -137,6 +137,27 @@ function addHearthisPageCreator( pageUrl, pageUrl_short ) {
 }
 
 /*
+ * The element the toolkit is placed after: the track page's header.
+ * hearthis.at's redesign (seen 2026-11-18, Tailwind markup) dropped section.track-detail-header,
+ * so the toolkit found no anchor and never appeared. The header is now the "hero" section, whose
+ * only stable hook is the Tailwind group name "group/hero" in its class list. The slash would have
+ * to be escaped in a class selector, so it is matched as a class substring instead.
+ * Profile pages carry a hero too (the artist banner), but with no track in it. Requiring exactly
+ * one track item ("group/track") in the hero keeps the toolkit off profiles and off any hero that
+ * lists several tracks, the way the old track-only header class did.
+ * The old selector stays first: harmless while it matches nothing, and it still works should
+ * hearthis.at serve the old layout to some visitors during the rollout.
+ */
+function getHearthisToolkitTarget() {
+    var oldHeader = $("section.track-detail-header");
+    if( oldHeader.length == 1 ) return oldHeader;
+
+    return $('section[class*="group/hero"]').filter(function() {
+        return $(this).find('li[class*="group/track"]').length == 1;
+    });
+}
+
+/*
  * Everything below reads the page out of the <meta> tags and the DOM, so it all has to run
  * again once hearthis has swapped in another track - see onUrlChange() in global.js.
  */
@@ -144,7 +165,7 @@ function runHearthisPage() {
     var pageUrl_meta = $('meta[property="og:url"]').attr("content"), // e.g. https://hearthis.at/andrei-mor/01-cultureshockandgrafix-radio1sessentialmix-sat-01-18-2025-talion/">
         pageId_meta = $('meta[property="hearthis:embed:id"]').attr("content"), // e.g. 11703627
         titleText = $('meta[property="og:title"]').attr("content") || document.title.replace(/\s*\|\s*HearThis.*$/i, ""), // e.g. Culture Shock &amp; Grafix - Radio 1's Essential Mix 2025-01-18
-        toolkitTarget = $("section.track-detail-header"),
+        toolkitTarget = getHearthisToolkitTarget(),
         pageUrl = pageUrl_meta || removeParametersFromUrl( location.href ),
         pageId = pageId_meta;
 
@@ -178,6 +199,9 @@ onUrlChange( runHearthisPage, { runNow: true } );
 })();
 
 /* ## Changelog
+ * 2026.11.18.2  Toolkit (and with it the Page Creator) shows up again: hearthis.at's redesign removed
+ *               section.track-detail-header, the element it was placed after. It now goes after the
+ *               track page's new header ("group/hero" section holding one "group/track" item).
  * 2026.11.18.1  Moved to github.com/Subfader/Mixes-userscripts: @name drops " (by MixesDB)", @author is "Subfader",
  *               @updateURL/@downloadURL and every @require and CSS URL load from the new repo.
  * 2026.09.04.2  Page Creator (title_builder.js v_92, page_creator.js v_132): a title carrying a character
