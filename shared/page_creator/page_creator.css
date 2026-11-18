@@ -1871,11 +1871,12 @@ body.soundcloud-com #mdb-sc-trackExtras #mdb-pageCreator-create:hover {
   */
 /*
  * The row sits directly above the toolkit here, so it takes the toolkit's own margin
- * (.mdb-toolkit.hearthis-at in global.css): the same 20px indent hearthis' track-detail
- * header has, and the 25px below that becomes the gap to the toolkit.
+ * (.mdb-toolkit.hearthis-at in global.css): flush with the track's "hero" card and the cards
+ * below it, and the 25px below that becomes the gap to the toolkit. Until the redesign seen
+ * 2026-11-18 both were indented 20px to match the old track-detail header's padding.
  */
 body.hearthis-at #mdb-pageCreator {
-    margin: 0 20px 25px 20px;
+    margin: 0 0 25px 0;
 }
 
 body.hearthis-at #mdb-pageCreator-hints {

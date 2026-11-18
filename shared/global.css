@@ -669,11 +669,23 @@ a.mdb-copy-text-button:focus,
     }
 }
 
-/* hearthis.at */
+/*
+ * hearthis.at
+ * The toolkit brings its OWN text colour, not just its own background. hearthis.at has a
+ * light and a dark theme of its own (data-color-scheme on <html>, "system" by default), and it
+ * is independent of the OS: a reader on a dark Mac can still set the site to light. The box
+ * stays #222 in every case, so text inherited from the site went dark-on-dark with the light
+ * theme and only the links stayed readable (seen 2026-11-18 after the redesign).
+ * No side margin: since the redesign (2026-11-18) the toolkit sits after the track's "hero"
+ * card, and the cards below it start flush with that card. The old 20px matched the padding
+ * of the old section.track-detail-header and left the box indented against everything else.
+ * The Page Creator row above it (page_creator.css) uses the same margin.
+ */
 .mdb-toolkit.hearthis-at {
-    margin: 0 20px 25px 20px;
+    margin: 0 0 25px 0;
     background-color: #222;
-    
+    color: #ddd;
+
     & a {
         color: #7bf;
         font: sans-serif;
@@ -1018,27 +1030,14 @@ a.mdb-copy-text-button:focus,
 }
 
 
-/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
- *
- * OS lightmode fixes
- *
- * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-
-@media (prefers-color-scheme: light) {
-    
-    /* hearthis.at */
-    body.hearthis-at {
-        & .content-layer-content {
-            background: inherit;
-            color: #fff;
-        }
-        
-        & .mdb-toolkit.hearthis-at {
-            background-color: transparent !important;
-            
-            & a {
-                color: #7cf;
-            }
-        }
-    }
-}
+/*
+ * No "OS lightmode fixes" block any more. Its only rules were for hearthis.at's OLD layout:
+ * they turned the site's .content-layer-content white-on-transparent under an OS light theme
+ * and made the toolkit transparent on top of it. Removed 2026-11-18 after the redesign:
+ * - an OS media query is the wrong switch there - hearthis.at has its own theme setting, so
+ *   a dark Mac can show the light site and the other way round
+ * - .content-layer-content still exists and wraps the whole track page, so forcing it white
+ *   would also hit hearthis' own white cards under it
+ * The toolkit now carries its own background AND text colour in every theme (see the
+ * hearthis.at rule in the toolkit section).
+ */

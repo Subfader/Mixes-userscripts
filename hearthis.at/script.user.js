@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hearthis.at
 // @author       Subfader
-// @version      2026.11.18.2
+// @version      2026.11.18.3
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
 // @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
@@ -33,7 +33,7 @@
  * global.js URL needs to be changed manually
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-var cacheVersion = 27,
+var cacheVersion = 28,
     scriptName = "hearthis.at";
 window.scriptName = scriptName; // toolkit.js reads this global directly
 window.cacheVersion = cacheVersion; // same reason: the @require'd shared files cache-bust their own CSS with it
@@ -199,6 +199,12 @@ onUrlChange( runHearthisPage, { runNow: true } );
 })();
 
 /* ## Changelog
+ * 2026.11.18.3  Toolkit readable again with hearthis.at's light theme (global.css, cacheVersion 28): the box
+ *               kept its dark background but took the site's text colour, so every label ("This player is
+ *               used on MixesDB:", "Embed URL:") went dark-on-dark and only the links showed. The toolkit now
+ *               sets its own text colour. It also lines up with the track's header card and the cards below
+ *               it instead of sitting 20px indented (Page Creator row too, page_creator.css). The OS
+ *               light-mode block for the old layout is gone.
  * 2026.11.18.2  Toolkit (and with it the Page Creator) shows up again: hearthis.at's redesign removed
  *               section.track-detail-header, the element it was placed after. It now goes after the
  *               track page's new header ("group/hero" section holding one "group/track" item).

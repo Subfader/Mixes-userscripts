@@ -14,3 +14,20 @@
 - The `<meta>` tags the script reads (`og:url`, `og:title`, `hearthis:embed:id`) survived the
   redesign. `og:type` is `website` on every page, so it cannot tell track pages apart.
 - If the toolkit disappears again, check `toolkitTarget.length` in the console log first.
+
+## Light and dark theme
+- hearthis.at has its own theme setting: `data-color-scheme` on `<html>` (`system` by default,
+  or light/dark set by the reader). It is NOT tied to the OS: a dark Mac can show the light
+  site. A `prefers-color-scheme` media query therefore cannot tell which theme the toolkit sits
+  in - that is why the old "OS lightmode fixes" block in `shared/global.css` was removed.
+- The track page's backdrop is a dark, artwork-tinted gradient in both themes; only the cards
+  (hero, "Mehr von ...", sidebar) and the text colour change. So the toolkit stays a dark box
+  (`#222`) and sets its OWN text colour (`.mdb-toolkit.hearthis-at` in `shared/global.css`).
+  Never let it inherit `color` from the site: with the light theme that is near-black, and
+  every label in the box (everything that is not a link) disappears.
+- `.content-layer-content` still exists and wraps the whole track page. Do not restyle it -
+  it also holds hearthis' own white cards.
+- The toolkit and the Page Creator row have no side margin: they line up with the hero card
+  and the cards below it. The old 20px inset matched the old header's padding.
+- Testing a theme without changing the site setting: set `color` on `.content-layer-content`
+  by hand in the console - that is what the toolkit would inherit.
