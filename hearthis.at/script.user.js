@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         hearthis.at
 // @author       Subfader
-// @version      2026.11.18.3
+// @version      2026.11.18.4
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
 // @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
@@ -33,7 +33,7 @@
  * global.js URL needs to be changed manually
  *
  * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
-var cacheVersion = 28,
+var cacheVersion = 29,
     scriptName = "hearthis.at";
 window.scriptName = scriptName; // toolkit.js reads this global directly
 window.cacheVersion = cacheVersion; // same reason: the @require'd shared files cache-bust their own CSS with it
@@ -199,6 +199,10 @@ onUrlChange( runHearthisPage, { runNow: true } );
 })();
 
 /* ## Changelog
+ * 2026.11.18.4  TrackId.net icon in the toolkit shows again (global.css, cacheVersion 29): hearthis.at's
+ *               stylesheet sets img { font-size: 0 }, and the icon's height cap is in em, i.e. relative to the
+ *               image's own font size - so it was capped at 0px and rendered as an empty 2x0 box. The icons
+ *               now take the text's font size back (same for the player domain icons).
  * 2026.11.18.3  Toolkit readable again with hearthis.at's light theme (global.css, cacheVersion 28): the box
  *               kept its dark background but took the site's text colour, so every label ("This player is
  *               used on MixesDB:", "Embed URL:") went dark-on-dark and only the links showed. The toolkit now

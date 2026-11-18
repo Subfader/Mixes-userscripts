@@ -31,3 +31,10 @@
   and the cards below it. The old 20px inset matched the old header's padding.
 - Testing a theme without changing the site setting: set `color` on `.content-layer-content`
   by hand in the console - that is what the toolkit would inherit.
+
+## Images
+- hearthis.at's stylesheet sets `img { font-size: 0 }` (hides alt text). Any `em` size on one of
+  our images is relative to the IMAGE's own font size, so it becomes 0px there - the TrackId.net
+  icon rendered as a 2x0 box. `shared/global.css` gives `img.tidSubmit-icon` and
+  `img.mdb-domainIcon` `font-size: inherit`. A new em-sized icon class needs to go into that
+  rule too, or be sized in px.

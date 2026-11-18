@@ -85,6 +85,22 @@ a.mdb-highlight-hover:hover,
 /*
  * links
  */
+
+/*
+ * Our icons are sized in em (the max-heights below, the toolkit's TrackId.net row, the inline
+ * style="max-height:1.2em" the scripts write), and an em on an <img> is the IMAGE's own
+ * font-size, not the text's next to it. hearthis.at's stylesheet sets img { font-size: 0 }
+ * (seen 2026-11-18 after the redesign - the usual trick to hide alt text), which turned every
+ * one of those caps into 0px: the TrackId.net icon rendered as a 2x0 box (its padding) and
+ * vanished. font-size: inherit takes the text's size back. Generic on purpose: font-size is
+ * inherited anyway wherever no site resets it, so this only changes anything where one does.
+ * img.<class> outweighs the site's bare img selector without !important.
+ */
+img.tidSubmit-icon,
+img.mdb-domainIcon {
+    font-size: inherit;
+}
+
 .mdb-domainIcon {
     max-height: 1em !important;
     padding: 0 .5em 0 0;
