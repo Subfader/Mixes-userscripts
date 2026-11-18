@@ -1,0 +1,511 @@
+/* grid */
+#tlEditor,
+#tlEditor-formActions {
+   display: table;
+    width: 100%;
+}
+#tlEditor section,
+#tlEditor-formActions section {
+    display: table-cell;
+    vertical-align: top;
+}
+
+/* maximize */
+#fieldsetTLeditor.maximized {
+	margin-left: -162px;
+}
+
+/* menu */
+#tlEditor-menu {
+    width: 190px;
+    padding-right: 1em;
+}
+#tlEditor-buttons {
+    margin-top: 3px;
+}
+#tlEditor-textarea-wrapper {
+    width: calc( 100% - 190px - 16px );
+}
+.tlEditor-menu-group + .tlEditor-menu-group,
+#tlEditor-menu-select-reselect {
+	margin-top: 16px;
+}
+
+/* buttons */
+.tlEditor-menu-group {
+    margin-left: 0 !important;
+}
+.tlEditor-menu-group ul {
+	margin: 0;
+}
+.tlEditor-menu-group li {
+    list-style: none;
+    display: inline-block;
+}
+.tlEditor-menu-group:not(:first-of-type) li {
+    margin: .4em .4em 0 0;
+}
+.tlEditor-button {
+    padding: .2em .6em;
+}
+.tlEditor-button,
+#tlEditor-menu-select {
+    background: #eee;
+    color: #444;
+    font-size: 12px;
+    font-weight: bold;
+    border: 1px solid #ddd;
+    border-radius: .4em;
+}
+.tlEditor-button.big,
+#tlEditor-formActions button:not(:disabled),
+#tlEditor-menu-select-reselect,
+#tlEditor-feedback-noChanges {
+	color: #777 !important; /* optical */
+}
+.tlEditor-button:not(:disabled):hover,
+.tlEditor-button.active,
+#tlEditor-menu-select-reselect:hover {
+    color: #f60 !important;
+}
+.tlEditor-button:disabled {
+	color: #aaa;
+	cursor: default;
+}
+#tlEditor-redo:disabled {
+	display:none;
+}
+#tlEditor-menu-select.active {
+    border-color: #f60 !important;
+}
+.tlEditor-button.selectable:hover{
+	background-color: rgba(255, 204, 0, 0.38) !important;
+}
+
+/* dropdown */
+#tlEditor-menu-select {
+    padding: .2em .2em .2em 3px;
+}
+#tlEditor-menu-select-reselect {
+	font-size: 1.2em;
+    padding: .2em .6em;
+}
+
+/* textarea */
+#tlEditor-textarea {
+    width: 100%;
+}
+/* ".tlEditor" as well: the Tracklist Importer's Merged box (and Player_Checker, radioeins)
+ * carries the class WITHOUT the id - on mixesdb.com the id belongs to the site's own editor
+ * module, and a second #tlEditor there hijacked its $('#tlEditor') lookups */
+#tlEditor textarea,
+.tlEditor textarea {
+    background-color: #fcfcfc;
+}
+#tlEditor-textarea,
+#tlEditor-feedback {
+	margin-bottom: 14px;
+    border-radius: .3em !important;
+}
+.waitingForApi {
+	/* gives visual feedback by little flashing
+	 * but select() does for now
+	 */
+    /* color: transparent; */
+}
+
+/* Blur update (tlBoxBlurUpdate in funcs.js): while the Tracklist Editor API re-formats a box
+ * the reader just left, the box greys out - and stays grey for a forced minimum, so the
+ * update never passes as an invisible flash. The transition sits on the box itself so the
+ * grey fades in and out instead of snapping.
+ * id+class on purpose: global.css colours these textareas via plain-id selectors with
+ * !important, and only higher specificity wins against that. */
+#tlEditor textarea,
+textarea#mixesdb-TLbox,
+textarea.mixesdb-TLbox,
+textarea.mdb-tlBox {
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+#tlEditor textarea.mdb-tlBox-updating,
+textarea#mixesdb-TLbox.mdb-tlBox-updating,
+textarea.mixesdb-TLbox.mdb-tlBox-updating,
+textarea.mdb-tlBox.mdb-tlBox-updating {
+    color: #fff !important;
+    background-color: #fff !important;
+}
+
+/* formActions */
+#tlEditor-formActions-replace,
+#tlEditor-formActions-findReplace-actions,
+#tlEditor-formActions-undoRedo {
+	padding-left: 1em;
+	text-align: right;
+}
+#tlEditor-formActions-findReplace-actions {
+	text-align: left;
+}
+#tlEditor-formActions-findReplace-actions,
+#tlEditor-formActions-undoRedo {
+	width: 1%;
+}
+#tlEditor-formActions textarea {
+	width: 100%;
+}
+
+/* feedback */
+#tlEditor-feedback {
+    padding: .65em .6em .5em .6em;
+    margin-left: -1px;
+    margin-right: -1px;
+}
+/*
+ * Everything in the top right corner of this box floats (the API's rows count, our chips, the
+ * toolkit's tracklist state buttons), and a one-line answer is shorter than they are: without
+ * this the box was only as tall as its text and the buttons hung out over its bottom border,
+ * onto whatever the page has under the box. A clearfix rather than "overflow: hidden", which
+ * would cut them off instead.
+ */
+#tlEditor-feedback::after {
+    content: "";
+    display: block;
+    clear: both;
+}
+
+/*
+ * The chip row (tlBoxChipRow in funcs.js): ONE wrapper around all of them - the state icons,
+ * "N rows", the API call counter, the Live updates switch.
+ *
+ * They floated one by one before, straight into the box, and every stylesheet that wanted the
+ * verdict UNDERNEATH them had to clear each of them separately - which held until the next
+ * render inserted a float the rule did not know about. Now they float TOGETHER: this wrapper
+ * is the only float, so one rule (see the mixesdb.com block further down) decides whether the
+ * verdict reads beside the chips or below them.
+ *
+ * The wrapper floats itself, so nothing changes on the wide boxes of the player sites - and
+ * "flow-root" because a float that contains floats measures zero high without a formatting
+ * context of its own, which would drop the whole row out of the box's height.
+ */
+.mdb-tlEditor-chipRow {
+    float: right;
+    display: flow-root;
+    max-width: 100%;
+}
+#tlEditor-feedback ul {
+    margin-top: 0;
+    margin-bottom: 0;
+    margin-block-start: 0;
+    margin-block-end: 0;
+    padding-inline-start: 15px;
+}
+#tlEditor-feedback ul li+li,
+#tlEditor-feedback ul+ul,
+#tlEditor-feedback-topInfo + div,
+#tlEditor-feedback-topInfo + ul,
+#tlEditor-feedback-topInfo-noList + div,
+/* our row list now sits UNDER the API's verdict (tlBoxTopInfoList in funcs.js), so the gap
+ * the rules above give the other order is needed for this one too */
+#tlEditor-feedback-text + ul#tlEditor-feedback-topInfo,
+#tlEditor-feedback-topInfo-noList + ul#tlEditor-feedback-topInfo {
+	margin-top: .5em !important;
+}
+
+/*
+ * Our own rows are rows of the message list and nothing else: plain <li>s, one per line, in
+ * the <ul> the API's own feedback uses - the cue format switch and TrackId.net's notice about
+ * the removed "?" tracks with its Toggle.
+ *
+ * They were floated and then laid out inline to save the box a line or two. Both took them out
+ * of the list: floated, they drifted into the top-right corner where the box's chips sit and
+ * pushed the verdict onto the second line; inline, they read as a strip of controls rather
+ * than as what the feedback has to say. The list is what this box is - the API writes its own
+ * feedback into one - so ours stay rows of it. The .5em between list items above is the only
+ * spacing they need.
+ */
+
+.feedbackDone #tlEditor-textarea:focus {
+    outline: none;
+}
+.feedbackDone #tlEditor-textarea,
+#tlEditor-feedback {
+    border-style: solid;
+    border-width: 1px;
+}
+.tlEditor-feedback-complete #tlEditor-textarea,
+.tlEditor-feedback-complete #tlEditor-feedback {
+    border-color: #090 !important;
+}
+.tlEditor-feedback-complete #tlEditor-feedback {
+    color: #090;
+}
+.tlEditor-feedback-complete #tlEditor-feedback {
+    background-color: #efd;
+}
+.tlEditor-feedback-hint #tlEditor-textarea,
+.tlEditor-feedback-hint #tlEditor-feedback {
+    border-color: rgb(255, 170, 0) !important;
+}
+.tlEditor-feedback-hint #tlEditor-feedback {
+    color: rgb(255, 170, 0);
+}
+.tlEditor-feedback-hint #tlEditor-feedback {
+    background-color: #FFFDDF;
+}
+.tlEditor-feedback-warning #tlEditor-textarea,
+.tlEditor-feedback-warning #tlEditor-feedback {
+    border-color: rgb(255, 0, 0) !important;
+}
+.tlEditor-feedback-warning #tlEditor-feedback {
+    color: rgb(255, 0, 0);
+}
+.tlEditor-feedback-warning #tlEditor-feedback {
+    background-color: #fee;
+}
+#tlEditor-feedback code {
+    padding-left: 0;
+    padding-right: 0;
+    border: 0;
+}
+.tlEditor-feedback-hint .darkorange,
+.tlEditor-feedback-hint #tlEditor-feedback-topInfo-noList {
+	color: #f80 !important;
+}
+#tlEditor-feedback-topInfo-noList .fa {
+	opacity: .9;
+}
+#tlEditor-feedback-rows {
+    color: #fff;
+    background: hsla(0, 0%, 87%, 0.7);
+    text-shadow: 1px 1px hsla(0, 0%, 39%, 0.3);
+    margin-top: -.275em;
+    padding: .2em .4em .2em .3em;
+    border-radius: .2em;
+}
+
+/*
+ * Everything the feedback box carries besides its message wears ONE chip: the API's own rows
+ * count, our call counter and "Live updates" switch (tlBoxShowApiCount in funcs.js), and the
+ * Tracklist Cue Switcher's format button.
+ *
+ * The look is the cue switch button's - the grey-bordered, quiet chip global.css gives
+ * "#tlEditor-feedback-topInfo button" - because that button was here first and reads well on
+ * every one of the box's status backgrounds (green, yellow, red, and the sites' own colours
+ * behind them) without competing with the message.
+ *
+ * Every property is stated rather than inherited, and that is the point: three of the four are
+ * <div>s and one is a real <button>, which browsers give a font, a background and a border of
+ * their own. Left to the defaults the same chip would look different per element and per
+ * browser, so font, background, border and radius are named here for all of them.
+ *
+ * Two IDs on the rows rule (and !important on shadow and border) because both are stated
+ * elsewhere - global.css and further down this file - and have to lose against this.
+ */
+#tlEditor-feedback #tlEditor-feedback-rows,
+#tlEditor-feedback button#switchCueFormat,
+.mdb-tlEditor-apiCalls,
+.mdb-tlEditor-liveUpdates {
+    color: #777;
+    font-family: inherit;
+    font-size: .85em;
+    font-weight: 600;
+    text-shadow: none !important;
+    padding: .2em .4em;
+    background: #eee;
+    border: 1px solid #ccc !important;
+    border-radius: .2em;
+    /* one stated height for the whole row - the chips are two <div>s, a <button> and a
+     * flex switch, and each of those finds a different height of its own from font and
+     * padding alone. The tracklist state buttons below are 28px for the same reason: they
+     * ride in this row and have to be one of it, not a bump in it. */
+    height: 28px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+}
+
+/*
+ * The spacing belongs to the floated chip row alone. The cue format switch wears the same chip
+ * but none of this: it is no float, it sits in the message list inside the box, where a left
+ * margin would only indent it away from the text it belongs to.
+ */
+#tlEditor-feedback #tlEditor-feedback-rows,
+.mdb-tlEditor-apiCalls,
+.mdb-tlEditor-liveUpdates {
+    margin-top: -.2em;
+    margin-left: .8em;
+}
+
+/* Hover only on the two that DO something - the button and the switch. The rows count and the
+ * call counter are read, not clicked, and a chip that lights up under the pointer without
+ * being clickable is a promise it cannot keep. Grey to near-black, the button's own hint. */
+#tlEditor-feedback button#switchCueFormat:hover,
+#tlEditor-feedback button#switchCueFormat:active,
+.mdb-tlEditor-liveUpdates:hover {
+    color: #111;
+}
+
+.mdb-tlEditor-apiCalls {
+    cursor: help;
+}
+
+/* While a new answer is swapped into the feedback box (tlBoxSettleFeedbackHeight in funcs.js),
+ * its height is animated from the old one to the new instead of snapping - the answers are
+ * genuinely different heights ("valid and complete" is one line, a warning is that line plus
+ * every track it names), and while typing the box would otherwise jump between them and drag
+ * the page with it. Only set for the length of the transition, and only when the two heights
+ * actually differ. */
+.mdb-tlEditor-feedback-resizing {
+    transition: height 0.18s ease;
+}
+
+/* The switch: a track with a knob that sits left when off and right when on, in the orange
+ * MixesDB uses for "active" everywhere else in this file. Inline-flex so label and switch
+ * share one baseline whatever the site's line-height is. */
+.mdb-tlEditor-liveUpdates {
+    display: inline-flex;
+    align-items: center;
+    gap: .4em;
+}
+.mdb-tlEditor-switch {
+    position: relative;
+    display: inline-block;
+    width: 1.9em;
+    height: 1em;
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 1em;
+    transition: background-color .15s ease;
+}
+.mdb-tlEditor-switch-knob {
+    position: absolute;
+    top: .1em;
+    left: .1em;
+    width: .8em;
+    height: .8em;
+    background: #fff;
+    border-radius: 50%;
+    transition: left .15s ease;
+}
+.mdb-tlEditor-liveUpdates-on .mdb-tlEditor-switch {
+    background: #f60;
+}
+.mdb-tlEditor-liveUpdates-on .mdb-tlEditor-switch-knob {
+    left: 1em;
+}
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Tracklist output
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+textarea#mixesdb-TLbox,
+textarea.mixesdb-TLbox,
+textarea.mdb-tlBox,
+textarea.mono {
+    color: #111 !important;
+}
+#tlEditor-feedback-rows {
+    font-weight: 600;
+    background: hsla(0, 0%, 79%, 0.7);
+    text-shadow: 1px 1px hsla(0, 0%, 39%, 0.5);
+}
+#tlEditor-feedback code {
+    font-size: 12px !important;
+}
+
+#tlEditor-feedback-topInfo {
+    & button {
+        border: 1px solid #ccc !important;
+        color: #777;
+        
+        &:hover,
+        &:active{
+            color: #111;
+        }
+    }
+}
+
+/* Normalizing feedback font */
+#tlEditor-feedback-topInfo span,
+#tlEditor-feedback strong {
+    font-family: sans-serif !important;
+}
+
+/*
+ * The tracklist state icons (toolkit_tlStateButtons() in toolkit/funcs.js): MixesDB's
+ * "Tracklist:" indicators from under its edit box, repeated in this box's chip row, on the
+ * outer side of the API's "N rows". They report the state the EDIT links carry - nothing here
+ * is clickable, so nothing here may look it.
+ *
+ * In the row rather than under the message because the box is ONE line tall whenever the
+ * answer is ("The tracklist seems valid and complete."), and a line of its own for two icons
+ * doubled it. The row is already there, already floated, and already the place this box keeps
+ * what it has to say ABOUT the tracklist rather than what it says TO you.
+ *
+ * 28px is the chips' height, which is why it is stated in px here as well: side by side with
+ * them, the icons have to be a chip, not a bump in the row.
+ *
+ * The float is stated here AND as "floatR" on the element (toolkit/funcs.js) on purpose. This
+ * file arrives through loadRawCss() at runtime, funcs.js through @require, so the two can be a
+ * cache generation apart - and the one thing that must not go missing in between is the float:
+ * without it the row is a full-width block that takes a line of its own above the chips and
+ * pushes them down. Leave both in place.
+ */
+.mdb-tlEditor-tlState {
+    float: right;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    /* the chips' own font size, so the em margins below land on the same pixel as theirs -
+     * nothing in here is text, it only makes this row measure like the ones next to it */
+    font-size: .85em;
+    margin-top: -.2em;
+    margin-left: .8em;
+    line-height: 1;
+}
+.mdb-tlEditor-tlState-button {
+    display: inline-block;
+    vertical-align: middle;
+    opacity: .2;
+}
+.mdb-tlEditor-tlState-button + .mdb-tlEditor-tlState-button {
+    margin-left: .3em;
+}
+/* the state that applies. The other one stays dim under the pointer as well: a hover that
+   lights it up would promise a click that no longer happens */
+.mdb-tlEditor-tlState-on {
+    opacity: 1;
+}
+.mdb-tlEditor-tlState-incomplete {
+    color: #f70;
+}
+.mdb-tlEditor-tlState-complete {
+    color: #090;
+}
+.mdb-tlEditor-tlState-icon {
+    display: block;
+    width: 28px;
+    height: 28px;
+}
+
+
+/*
+ * mixesdb.com
+ *
+ * The boxes on this domain are narrow - the Tracklist Importer's Merged column is a third of
+ * the page - and a verdict squeezed into the strip left of the chips breaks into two or three
+ * lines while the row next to it stays one. So the chip row takes a line of its own here and
+ * the verdict starts under it, with .5rem of air. Three chips here rather than the player
+ * sites' four: toolkit_tlStateButtons() draws no state icons on mixesdb.com, the real ones
+ * being under the edit box on the same page.
+ *
+ * float: none is all it takes: the chips inside the wrapper keep floating right, so their
+ * order and their look are the ones every other site shows.
+ */
+body.mixesdb-com #tlEditor-feedback .mdb-tlEditor-chipRow {
+    float: none;
+}
+
+body.mixesdb-com #tlEditor-feedback .mdb-tlEditor-chipRow ~ #tlEditor-feedback-text,
+body.mixesdb-com #tlEditor-feedback .mdb-tlEditor-chipRow ~ #tlEditor-feedback-topInfo {
+    margin-top: .5rem;
+}

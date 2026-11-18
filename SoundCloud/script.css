@@ -1,0 +1,588 @@
+.listenDetails__login {
+    display: none;
+}
+
+.sc-text-grey {
+    color: #999;
+}
+
+.mdb-grey-light {
+    color: #bbb;
+}
+
+#mdb-trackHeader h1 {
+    margin-top: 10px;
+}
+
+#mdb-trackHeader-releaseInfo {
+    margin-bottom: 8px;
+}
+
+#mdb-trackHeader-releaseInfo span+span {
+    margin-left: 10px;
+}
+
+#mdb-trackHeader-releaseInfo date.highlight {
+    color: green;
+    font-weight: bold;
+}
+
+.listenEngagement {
+    padding-bottom: 6px;
+}
+
+.listenEngagement__actions {
+    padding-bottom: 8px;
+}
+
+button.mdb-toggle.selected,
+a.sc_button-mdb:active {
+    border-color: #f60;
+}
+
+/* our fake buttons that are links carry the classes on the <a> itself, so the anchor must
+   not bring its own link look along - here and in the hover state */
+a.sc_button-mdb,
+a.sc_button-mdb:hover {
+    text-decoration: none;
+}
+
+#mdb-toggle-target>div {
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    border-bottom: 1px solid #fff;
+    box-shadow: 0 1px 0 0 #f2f2f2;
+}
+
+#mdb-searchLink-detailPage img {
+    display: inline !important;
+    padding-left: 15px;
+}
+
+#apiText {
+    white-space: break-spaces;
+}
+
+#mdb-fileDetails {
+    font-size: 12px;
+    line-height: 1.4em;
+    padding-bottom: 16px !important;
+}
+
+#mdb-fileDetails textarea {
+    width: 19em;
+    font-family: monospace;
+}
+
+.sc-button-group {
+    padding: 0 !important;
+}
+
+.sc-button-group {
+    margin: 0 !important;
+}
+
+.sc-button-group *,
+.sc-button-toolbar>.sc-button {
+    margin-left: 0 !important;
+}
+.sc-button-group>.sc-button {
+    margin-right: 7px !important;
+}
+
+.fullHero__artwork {
+    width: 340px;
+    height: 360px;
+}
+
+.fullHero__artwork * {
+    width: 320px;
+    height: 320px;
+}
+
+#mdb-artwork-input-wrapper {
+    background-color: rgba(20,20,20, .5);
+    height: 1.6em;
+    line-height: 1.4em;
+}
+
+.mdb-copy-text-source:not(input):not(textarea) {
+    min-width: 200px !important;
+}
+
+#mdb-artwork-input,
+#mdb-artwork-info {
+    height: 20px;
+    background-color: rgba(0, 0, 0, 0.1);
+    display: inline-block;
+}
+
+#mdb-artwork-input,
+#mdb-artwork-info a {
+    color: #fff;
+    opacity: .75;
+}
+
+#mdb-artwork-info {
+    padding-right: 5px;
+    
+    & a {
+        text-decoration: underline;
+    }
+    
+    & img {
+        width: 320px;
+    }
+}
+
+#mdb-artwork-input {
+    overflow: hidden;
+    width: calc( 100% - 113px - 3px - 3px - 34px ); /* 34px reserved for the copy button below */
+    padding-left: 3px;
+    padding-right: 3px;
+    font-size: 13px;
+
+    &::selection {
+        background-color: #fc0 !important;
+        color: #fff;
+        opacity: 1;
+    }
+}
+
+#mdb-artwork-info {
+    width: 113px;
+    text-align: right;
+}
+
+/* small copy button behind the artwork URL input */
+#mdb-artwork-input-wrapper .mdb-copy-text-control {
+    margin-left: 4px;
+    vertical-align: top;
+}
+
+#mdb-artwork-input-wrapper .mdb-copy-text-button {
+    box-sizing: border-box;
+    font-size: 11px;
+    height: 20px;
+    line-height: 1;
+    padding: 0 6px;
+    margin-right: 4px;
+}
+
+#mdb-pageCreator .mdb-copy-text-control {
+    padding-left: 10px;
+    padding-right: 0;
+}
+
+.listenInfo {
+    & #mdb-artwork-input {
+        clear: both !important;
+        width: 100% !important;
+    }
+}
+
+/*
+ * New Material "Track header" layout (since ~Aug 2026 redesign)
+ * API/file-details buttons + toolkit live in their own full-width wrapper below the box
+ * Order: head row (title + artwork info) > buttons > toggle target > toolkit
+ */
+#mdb-sc-trackExtras {
+    width: 100%;
+    margin-top: -20px;
+    /* contains the floated #mdb-sc-trackHead, so the artwork bar can never spill out of the
+       wrapper on a track whose content below happens to be shorter than the bar */
+    display: flow-root;
+}
+
+
+/*
+ * The artwork info bar sits top right, directly below the artwork of the Track header box.
+ *
+ * A real float, not a flex row: as a flex item it would be a row of its own, and every line
+ * below - headline, title suggestion, buttons - would start BELOW the bar, wasting a whole
+ * bar's height of empty space on the left. Floated, the bar is out of normal flow: the
+ * headline starts at the very top and only its first line has to make room for the bar,
+ * everything past the bar's ~26px gets the full wrapper width.
+ *
+ * #mdb-sc-trackHead must stay the FIRST child of the wrapper for this - a float only pushes
+ * aside content that comes after it in the source.
+ */
+#mdb-sc-trackHead {
+    float: right;
+    max-width: 100%;
+    margin-left: 20px;
+}
+
+/*
+ * The headline is lifted OUT of here (see script.user.js) so it gets the full wrapper width.
+ * What is left is an empty block, which is why it needs no sizing of its own any more - the
+ * float above is sized by the artwork bar alone.
+ */
+#mdb-sc-trackHead #mdb-trackHeader {
+    min-width: 0; /* let long titles wrap instead of stretching the row */
+}
+
+/*
+ * Tighter headline spacing. Matched on the ID, not as "#mdb-trackHeader h1": in the new layout
+ * the headline is no longer inside #mdb-trackHeader, so the descendant selector would miss it.
+ */
+#mdb-sc-trackExtras #mdb-trackHeader-headline {
+    margin: 0 0 5px;
+    line-height: 1.25;
+}
+
+#mdb-sc-trackExtras #mdb-trackHeader-releaseInfo {
+    margin-bottom: 4px;
+}
+
+/*
+ * One row: create date, DL button, duration (#mdb-fileInfo) and the API toggle
+ */
+#mdb-sc-trackButtons {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 15px;
+    margin: 15px 0px 5px; /* bottom tighter to the toolkit */
+}
+
+/* the dates paragraph is one flex item of that row - no paragraph spacing there */
+#mdb-sc-trackButtons #mdb-trackHeader-releaseInfo {
+    margin: 0;
+}
+
+/*
+ * The new layout renders into its own document, which carries none of SoundCloud's
+ * legacy .sc-button-* styles - our fake soundAction buttons need their own look there.
+ * They copy the round icon buttons of the Track header box (MuiIconButton "colorContrast",
+ * .mui-163v5oj): 40px high, 1.5px ring, no fill, same hover. The MUI palette vars live on
+ * that document's :root, so we can reuse them - the fallbacks are their current values, in
+ * case SoundCloud renames them.
+ * Two deviations from those buttons:
+ * - the ring is a border, not their outline + outline-offset: -1.5px. With border-box both
+ *   draw the same 1.5px line inside the 40px box, but the border leaves :focus outlines alone.
+ * - they hold a 24px icon and stay square, ours hold text of varying length (DL, API,
+ *   2:06:21). border-radius: 50% would turn the wider ones into ellipses, so the radius is a
+ *   large pixel value instead: short labels come out as circles (they stop at min-width =
+ *   height), longer ones grow into a pill with the same round caps.
+ */
+#mdb-sc-trackButtons .sc_button-mdb {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    flex: 0 0 auto;
+    height: 40px;
+    min-width: 40px;
+    margin: 0; /* spacing comes from the row's gap */
+    padding: 0 10px;
+    font: inherit;
+    font-size: 14px;
+    line-height: normal;
+    text-align: center;
+    text-decoration: none;
+    vertical-align: middle;
+    color: var(--mui-palette-contrast-contrastText, #fafafa);
+    background-color: transparent;
+    border: 1.5px solid var(--mui-palette-contrast-outlinedBorder, rgba(250, 250, 250, 0.24));
+    border-radius: 999px;
+    transition: background-color 300ms ease-out, color 300ms ease-out, border-color 300ms ease-out;
+    appearance: none;
+    user-select: none;
+    cursor: pointer;
+}
+#mdb-sc-trackButtons .sc_button-mdb:hover {
+    border-color: var(--mui-palette-contrast-hover, rgba(250, 250, 250, 0.16));
+    background-color: var(--mui-palette-contrast-hoverFill, rgba(18, 18, 18, 0.4));
+}
+/* buy/purchase link: it is an <a> carrying the button classes, not an <a> inside a <button>
+   (SoundCloud's .sc-button sets pointer-events: none on children), so the link look has to be
+   taken off the button itself, in the hover state too */
+#mdb-sc-trackButtons a.sc_button-mdb,
+#mdb-sc-trackButtons a.sc_button-mdb:hover {
+    color: var(--mui-palette-contrast-contrastText, #fafafa);
+    text-decoration: none;
+}
+/* the DL button forwards the click to SoundCloud's own download button */
+#mdb-sc-trackButtons #mdb-dlInfo {
+    color: #f60;
+}
+#mdb-sc-trackButtons #mdb-dlInfo.mdb-dlInfo-failed {
+    color: #999;
+    cursor: default;
+    text-decoration: line-through;
+}
+#mdb-sc-trackButtons #mdb-dlInfo.mdb-dlInfo-failed:hover {
+    border-color: var(--mui-palette-contrast-outlinedBorder, rgba(250, 250, 250, 0.24));
+    background-color: transparent;
+}
+
+/* Too short for MixesDB (under 20 min): the toolkit and the Page Creator are skipped on
+   purpose, and the red duration button is what says so - see the toolkit duration gate in
+   script.user.js. --mui-error-dark-color is SoundCloud's own error color, read live off the
+   top document (#b40030); the fallback IS that value, for a document that does not define it.
+   The :hover line keeps the red fill against .sc_button-mdb:hover's own background-color,
+   which is more specific than the bare id+class.
+
+   It is a LABEL here, not a control: the file details it would open are the wikitext for a mix
+   page this track will never get, so script.user.js leaves the toggle off it. The cursor has to
+   say the same thing - .sc_button-mdb sets "pointer" on every button in the row - and so does
+   the border, which would otherwise still light up on hover and promise a click. */
+#mdb-fileInfo.mdb-fileInfo-tooShort,
+#mdb-sc-trackButtons #mdb-fileInfo.mdb-fileInfo-tooShort:hover {
+    background-color: #ffadc4a3;
+    color: var(--mui-error-dark-color, #b40030);
+    border-color: var(--mui-palette-contrast-outlinedBorder, rgba(250, 250, 250, 0.24));
+    cursor: default;
+}
+
+/* Artwork info bar is its own block here, not an overlay on the artwork:
+   right of the title on wide windows, above it once the head row wraps */
+#mdb-sc-trackExtras .mdb-artwork-input-wrapper-trackHeader {
+  display: flex;
+  align-items: center;
+  width: 336px;
+  margin-right: 24px;
+}
+
+#mdb-sc-trackExtras .mdb-artwork-input-wrapper-trackHeader input {
+  flex: 1 1 auto;
+  min-width: 0; /* without this the input won't shrink below its content/intrinsic size and will overflow the 336px box */
+  width: auto;
+}
+
+.userStream h3 {
+    margin: 0 0 10px;
+}
+
+.infoStats__table td {
+    vertical-align: bottom;
+}
+
+.mdb-removeItem {
+    text-align: center;
+    margin: -2px 0 -10px 17px;
+    padding-left: 1px;
+    line-height: 1.7em;
+    font-size: 18px;
+    height: 30px;
+    width: 30px;
+    background-color: #f3f3f3;
+    border-radius: 50%;
+}
+
+.mdb-removeItem:hover {
+    color: #f60;
+    background-color: #eee;
+}
+
+.soundList__item.processed {
+    margin-right: -22px;
+}
+
+.soundList__item .soundTitle__tag,
+.soundList__item .soundTitle__tag:hover {
+    background-color: #ddd;
+    border-color: #ddd;
+}
+
+.soundList__item {
+    margin-bottom: 20px;
+}
+
+.fullListenHero {
+    width: 100% !important;
+}
+
+.mdb-copyLink {
+    color: var(--link-secondary-color);
+    font-weight: 300;
+}
+
+#mdb-streamActions {
+    margin-left: var(--spacing-2x);
+}
+.soundActions button {
+    min-width: 33px !important;
+}
+.soundActions .mdb-tidSubmit img {
+    max-height: 20px;
+    margin-right: 0 !important;
+}
+
+/* "More" soundActions: indicate available download */
+.mdb-fakeDlButton {
+    margin-right: -1px !important; /* optical */
+}
+.mdb-fakeDlButton:before {
+    background-image: url(data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiBlbmNvZGluZz0iVVRGLTgiIHN0YW5kYWxvbmU9Im5vIj8+DQo8c3ZnIHdpZHRoPSIxNnB4IiBoZWlnaHQ9IjE2cHgiIHZpZXdCb3g9IjAgMCAxNiAxNiIgdmVyc2lvbj0iMS4xIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB4bWxuczpza2V0Y2g9Imh0dHA6Ly93d3cuYm9oZW1pYW5jb2RpbmcuY29tL3NrZXRjaC9ucyI+DQogICAgPCEtLSBHZW5lcmF0b3I6IFNrZXRjaCAzLjAuMyAoNzg5MSkgLSBodHRwOi8vd3d3LmJvaGVtaWFuY29kaW5nLmNvbS9za2V0Y2ggLS0+DQogICAgPHRpdGxlPlJlY3RhbmdsZSAzMTwvdGl0bGU+DQogICAgPGRlc2M+Q3JlYXRlZCB3aXRoIFNrZXRjaC48L2Rlc2M+DQogICAgPGRlZnMvPg0KICAgIDxnIGlkPSJQYWdlLTEiIHN0cm9rZT0ibm9uZSIgc3Ryb2tlLXdpZHRoPSIxIiBmaWxsPSJub25lIiBmaWxsLXJ1bGU9ImV2ZW5vZGQiIHNrZXRjaDp0eXBlPSJNU1BhZ2UiPg0KICAgICAgICA8cGF0aCBkPSJNMywxMSBMMywxMyBMMTMsMTMgTDEzLDExIEwzLDExIFogTTMsNCBMMTMsNCBMOCwxMCBMMyw0IFogTTYsMiBMNiw0IEwxMCw0IEwxMCwyIEw2LDIgWiIgaWQ9IlJlY3RhbmdsZS0zMSIgZmlsbD0icmdiKDM0LCAzNCwgMzQpIiBza2V0Y2g6dHlwZT0iTVNTaGFwZUdyb3VwIi8+DQogICAgPC9nPg0KPC9zdmc+DQo=);
+    background-size: 16px 16px;
+    background-repeat: no-repeat;
+    background-position: 50%;
+    width: 20px;
+    height: 20px;
+    left: 28px;
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    margin: auto 0;
+}
+.sc-button-more.sc-button-active .mdb-fakeDlButton:before {
+    background-image: url(data:image/jpeg;base64,iVBORw0KGgoAAAANSUhEUgAAAEMAAABDCAYAAADHyrhzAAAACXBIWXMAAC4jAAAuIwF4pT92AAAB/klEQVR4nO2awVHDMBBFvxkKoIS0QAekA7j4nkqADlICZ19CB0kHuISUkA7EIcnMH6PJsNKulMN/d1maP9K+tewhpQRx5qH3Au4JhUEoDEJhEAqDUBiEwiAem8wyDvvqZ0xp7bCSm7QJA3hpNE8VOiaEwiAUBqEwCIVBKAxiMN9njMMKwMo4T32fAVj7jCOmdLQMKO0zdgCeCseWYgn0BODZOoH9mJzTDu8GK1lbdwVQWjOmNAPYFI2NZ3NZn5nyAjqlLwDb4vExbC/rKsJeQJeMww7Aa91DXPjGlN5qHuCh1g2A2eE5NcxwOLb1OwO46vYH7Q0DXM1RUDCX+DRdfQ1TZI4cfh1oH8MUmyOHbzve1jBV5sjhUzOWxBum2hw5ol7UIg0zI+g4xuwMIMowJziZI0fcK3yMYdzMkSP2PsPXMK7myBF/ueNjGHdz5IirGUvKDRNijhwtr/1KDDOjYSPXbmcAVsOcEGiOHG0vhG2GCTVHjva34/8zTLg5cvT5VHDbME3MkaNtzVjy1zDNzJGj90ckNsyMzpfMfXcGcDXMHh0K5pL+YdwRvY/JXaEwCIVB2D88j8MHgHf3lfjziSl9WAZoZxAKg1AYhMIgFAahMAiFQZT84HbwXkQQB+sAvagROiaEwiAUBqEwCIVBKAxCYRAKg1AYhMIgFAbxC74opTCjRzdRAAAAAElFTkSuQmCC); /* orange icon doesn't exist in SC CSS > custom made */
+}
+
+/*
+ * Force full description, remove "Show more/less" link
+ */
+.truncatedAudioInfo__wrapper {
+    max-height: inherit !important;
+}
+.truncatedAudioInfo__collapse {
+    display: none !important;
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * 
+ * 
+ * Compact playlists
+ * 
+ * 
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/* 
+ * On hovering a playlist item:
+ * Hide some buttons to make room for the added "Link"
+ * To not get hidden in "..."
+ */
+.compactTrackList__item {
+    button.sc-button-share,
+    button.sc-button-repost {
+        display: none !important;
+    }
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ * 
+ * 
+ * Filter row in #mdb-streamActions 
+ * 
+ * 
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/*
+ * Sticky toolbar on profile/stream pages
+ */
+#mdb-streamActions {
+    position: sticky;
+    top: 0;
+    z-index: 3000; /* stays above SC header shadows */
+    background: var(--button-secondary-background-color, #303030); /* SC default */
+    border-radius: 4px; /* SC default */
+    padding: 10px 15px;
+    border-bottom: 4px solid #aaaaaa70;
+}
+/* ensure the following content doesn't overlap */
+div.stream__list {
+    margin-top: 10px;
+}
+
+/* Hide filtered players */
+html.sc-hide-short-active [data-sc-too-short="1"],
+html.sc-hide-short-active [data-sc-too-few-favs="1"] {
+    display: none !important;
+}
+.visually-hidden {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0 0 0 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+}
+html.sc-hide-short-active [data-sc-too-short="1"] {
+    display: none !important;
+}
+
+.mdb-streamActions-group + .mdb-streamActions-group {
+    margin-left: 1.5em;
+}
+
+/* Preferred container spacing */
+#mdb-streamActions-filter {
+    margin-top: 6px;
+    
+    & input[type="number"] {
+        width: 3.5em;
+    }
+
+    & .mdb-darkorange {
+        padding-right: .74rem !important;
+    }
+
+    & span.value {
+        display: inline-block;
+        min-width: 2em !important;      /* enough for up to 3 digits (e.g. "180") */
+        text-align: right;
+        margin-right: .25em;
+    }
+    & span.value.sc-min-favs-val {
+        min-width: 2.5em !important;
+    }
+    
+    & #sc-hide-short-checkbox {
+        margin-top: 3px;
+    }
+    
+    & input[type=range] {
+        display: inline-block;
+        vertical-align: middle;
+        position: relative;
+        top: -1px;
+        margin: -4px 2px;
+        width: 100px !important;
+    }
+}
+
+/* fallback / precise styling for WebKit */
+input[type=range]::-webkit-slider-runnable-track {
+    background: inherit;
+    height: 4px;
+    border-radius: 2px;
+}
+input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: #007aff !important;          /* iOS / macOS system blue */
+    border: 2px solid #fff;       /* white ring for contrast */
+    margin-top: -4px;             /* vertically center thumb */
+    cursor: pointer;
+}
+    
+/* TEMP BETA Fallback layout when not inside #mdb-streamActions */
+body.sc-hideShortTracks-fallback {
+    && #mdb-streamActions-filter {
+        margin: 0 auto;
+        text-align: center;
+    }
+    
+    #sc-hide-short-checkbox {
+        margin-bottom: 3px;
+    }
+    
+    && #content {
+        margin-top: 30px !important;
+    }
+    
+    && .userDropbar {
+        padding-top: 32px !important;
+    }
+}

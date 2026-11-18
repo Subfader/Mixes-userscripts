@@ -1,0 +1,2909 @@
+log( "/shared/page_creator/title_definitions.js loaded" );
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Definitions for the MixesDB Page Creator's title suggestion
+ *
+ * The suggestion itself is built in buildMixesdbTitle() (title_builder.js) and offered as an
+ * editable input by page_creator.js. Everything in this file is plain data meant to be
+ * extended by hand - no logic, so it can be edited without reading the parser.
+ *
+ * Shared by every site script that has a player title, a channel name and a date. The word
+ * lists are site-agnostic (they are English/German title vocabulary), so a rule learned from
+ * one site applies to all of them. The one list keyed by site data is
+ * mdbTitleUsernameConversions, whose keys are channel names - add them per site, they cannot
+ * collide in practice because the same channel name on two sites means the same show.
+ *
+ * The examples in the comments below are SoundCloud titles because that is the site the rules
+ * were learned on first - they are examples, not a restriction.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+
+/*
+ * The three groups
+ *
+ * A MixesDB mix page title is made of exactly THREE groups, separated by " - ":
+ *
+ *     YYYY-MM-DD - Artist - Entity
+ *
+ * Everything read out of a player title has to end up inside one of them. A 4th group is
+ * always a parsing mistake, never a richer title. Every way one has appeared so far, and all
+ * of them are a NUMBER or a NAME that was cut loose from the group it belongs to:
+ *
+ * - An episode NUMBER given its own group:
+ *       "Planet Melis - Techno Germany Podcast 226"
+ *       WRONG: 2026-08-06 - Planet Melis - 226 - Techno Germany Podcast
+ *       RIGHT: 2026-08-06 - Planet Melis - Techno Germany Podcast 226
+ *   Artist and entity were both already there, so there was nothing to solve: the number
+ *   belongs BEHIND the entity it numbers (see mdbTitle_assemble). A number is something to
+ *   watch out for, but it is never a group of its own.
+ *
+ * - Further artists given their own group:
+ *       "Rinse France Show - Slowciety w/ Asa 808 - 07/03/2019"
+ *       WRONG: 2019-03-07 - Slowciety - Rinse France Show - w/ Asa 808
+ *       RIGHT: 2019-03-07 - Slowciety, Asa 808 - Rinse France Show
+ *   They belong INTO the artist group - see mdbTitleExtraArtistConnectors below.
+ *
+ * - The entity split in half at the word before its number:
+ *       "SEVEN Mix 084 - Theo Scuera"    (channel "SEVEN")
+ *       WRONG: 2026-07-13 - SEVEN - Mix 084 - Theo Scuera (Promo Mix)
+ *       RIGHT: 2026-07-13 - Theo Scuera - SEVEN Mix 084
+ *   "SEVEN Mix" is the entity, see mdbTitleShowSuffixWords. Two perfect groups in the wrong order
+ *   is the easy case - do not take them apart, swap them.
+ *
+ * - The channel name added although the title already carried both groups:
+ *       "MOLTO IN THE MIX - Guest of the Week: buyArt"   (channel "Molto Recordings Group")
+ *       WRONG: 2026-07-24 - MOLTO IN THE MIX - Guest of the Week: buyArt - Molto Recordings Group
+ *       RIGHT: 2026-07-24 - buyArt - Molto In The Mix
+ *   Nothing was missing, so nothing had to be filled in. A channel name that is neither
+ *   mapped nor found in the title is a guess, and a guess never earns a fourth group.
+ *
+ * - The number written ONTO the entity, cut off as a stray ".251":
+ *       "Trommel.251 - Arno"    (channel "trommel")
+ *       WRONG: 2026-08-06 - trommel - .251 - Arno (Promo Mix)
+ *       RIGHT: 2026-08-06 - Arno - trommel.251
+ *   The channel name confirms the entity, and the channel's spelling is the one used.
+ *
+ * A suggestion that still comes out with more than three groups takes a big confidence hit,
+ * because it means part of the player title was not understood.
+ */
+
+
+/*
+ * Characters a wiki title cannot hold
+ *
+ * MixesDB is a MediaWiki, and a page title may not contain # < > [ ] | { }. They are replaced
+ * by a space, so the words on either side survive: "RAUSCH#6" -> "RAUSCH 6".
+ *
+ * "|" is worth a word of its own: player titles use it as a separator all the time, and it
+ * turning up in a suggestion never means "this title has a pipe in it" - it means a bit of the
+ * title was not split up and not understood. It is replaced anyway, but the parse is what has
+ * to be fixed when one appears.
+ *
+ * The SQUARE brackets are the exception, and mdbTitle_wikiSafe() handles them before this list
+ * is applied: a bracket a title still carries at that point is holding something ("[Live]",
+ * "[Part 2]"), so it becomes the ROUND bracket a wiki title may hold, never a space. Dropping
+ * a bracket pair takes a word with it, which is a decision - and the rules that make those
+ * (mdbTitleNoise, mdbTitleDroppedBitPatterns, mdbTitleKnownLabels) have all run by then.
+ *
+ *     "[selected] podcast 064 w/ STRAUSS."  (channel "[selected]")
+ *     WRONG: 2026-08-11 - Strauss. - Podcast 064
+ *     RIGHT: 2026-08-11 - Strauss. - (selected) Podcast 064
+ *
+ * The brackets are what the show is called there, and losing them loses the name. A square
+ * bracket becomes a round one - it is never simply removed.
+ */
+var mdbTitleWikiIllegalChars = /[#<>\[\]|{}]+/g;
+
+
+/*
+ * The underscore IS a space
+ *
+ * MediaWiki reads "_" and " " in a page title as the same character - "Some_Mix" and
+ * "Some Mix" are one page - so an underscore in a title is a space already, and writing it as
+ * one loses nothing. Uploaders type them where a FILE NAME would carry them:
+ *
+ *     "LONE SAXON_AUGUST 26_MIX"  (channel "Lone Saxon / Nick J. Smith")
+ *     WRONG: 2026-08-07 - Lone Saxon_august 26_MIX - Lone Saxon Nick J. Smith
+ *     RIGHT: 2026-08-07 - Lone Saxon - August 26 Mix
+ *
+ * Done before ANY rule reads a word of the title, because "_" is a word character to a regex:
+ * every "\b" in the parser reads "SAXON_AUGUST" as one word, so the channel name in front of
+ * it is never found, no word list ever matches, and the whole title ends up in the artist.
+ * The channel name is spaced the same way and for the same reason - it is compared against the
+ * title, and it ends up in the title itself.
+ *
+ * A SPACE, not a separator. An underscore stands where a space was typed out of the way, not
+ * where a "-" or a "|" would be: reading it as a separator breaks the title above into three
+ * groups and the mix's own name is lost to the flattening.
+ */
+var mdbTitleSpaceChars = /_+/g;
+
+
+/*
+ * mdbTitleApostropheChars
+ *
+ * The apostrophe variants an uploader's keyboard produces, all written as the plain "'" that
+ * MixesDB uses:
+ *
+ *     "MIT DIR `23 Warm Up Session"  ->  "MIT DIR '23 Warm Up Session"
+ *
+ * A page title spelled with a backtick or a typographic quote is a different page from the
+ * same title spelled plainly, so this is not cosmetics: it decides whether an editor finds
+ * the page again. Only apostrophe-SHAPED characters belong here - quotation marks (" “ ”) are
+ * a different character with a different job and are left alone.
+ */
+var mdbTitleApostropheChars = /[`´‘’‚‛ʻʼ′]/g;
+
+
+/*
+ * The spelling every group is held to
+ *
+ * mdbTitle_tidy() in title_builder.js runs over the artist and the entity at the single exit of
+ * buildMixesdbTitle(), so it holds whichever branch built them, and over nothing else. These are
+ * MixesDB spelling conventions, not parsing - they never change WHAT a group says, only how it
+ * is written, which is why they can be applied blindly to a group nobody understood:
+ *
+ * - apostrophe variants become "'"                    (mdbTitleApostropheChars)
+ * - "[...]" becomes "(...)"                           (mdbTitle_wikiSafe, see above)
+ * - no space behind "(" or in front of ")"            "( Live )"     -> "(Live)"
+ * - no space in front of ","                          "Tonino , DJ"  -> "Tonino, DJ"
+ * - a run of spaces becomes one, and the title is trimmed
+ *
+ * What is NOT in that list, and must not be added to it: dropping brackets. A bracket that is
+ * still standing at the exit is holding a word, and a word is not something a cleanup step gets
+ * to decide about - mdbTitleNoise and mdbTitleDroppedBitPatterns are where a chunk is dropped,
+ * both of them off a list that says which chunks, and both long before this.
+ */
+
+
+/*
+ * Brackets are a chunk of their own
+ *
+ * "(...)", "[...]" and "{...}" separate a title exactly the way a "|" does - a player title
+ * puts an aside in brackets and the next thing in a new chunk, and which of the two an uploader
+ * reaches for says nothing about the content:
+ *
+ *     "Anja Schneider - Live at Docklands (Smirnoff Sound Collective Camp)"
+ *     is read as "Anja Schneider | Live at Docklands | Smirnoff Sound Collective Camp"
+ *
+ * So they are rewritten to "|" before anything else looks at the title, and every rule that
+ * splits a title into chunks gets the bracketed one for free, without knowing about brackets.
+ * The chunk then lives or dies by the same rules as any other: here the last one names a camp,
+ * which mdbTitleDroppedBitPatterns drops, and the title comes out as
+ * "2016-07-14 - Anja Schneider @ Docklands".
+ *
+ * Decoration in brackets is gone by then - mdbTitleNoise runs first, and so does the label
+ * credit of mdbTitleKnownLabels below.
+ *
+ * The one bracket that is NOT a chunk of its own is the one OPENING the title with the CHANNEL
+ * NAME. There the brackets are how the brand writes itself and the words behind them are the
+ * rest of the same name: "[selected] podcast 064" is one show, not a "[selected]" standing next
+ * to a "podcast 064". It keeps its place and its brackets become round ones (mdbTitle_wikiSafe).
+ *
+ * Only at the head of the title. A bracket at the END is an aside about what stands in front of
+ * it, and stays one however it reads - "Tooker (SONARA)" credits Tooker's label even when it is
+ * SONARA uploading it.
+ */
+
+
+/*
+ * mdbTitlePromoMixImpliedWords
+ *
+ * " (Promo Mix)" is written behind a title to say the name in front of it is NOT a podcast or
+ * radio show. A name that already carries one of these words says so by itself, so the suffix
+ * would only repeat it:
+ *
+ *     "Brisboys - Summer 2026 Mix"  ->  2026-08-07 - Brisboys - Summer 2026 Mix
+ *                                       and NOT "... Summer 2026 Mix (Promo Mix)"
+ *
+ * The mix is still a promo mix - the suggestion says so under the "Create" link instead, as
+ * the category to put the page in.
+ *
+ * The list is also read the other way round, as "the name SAYS this is self-released": a
+ * counted volume is always the name of a thing (never a person, never a date), and nine out of
+ * ten times that thing is someone's own mix series rather than a numbered podcast. So where the
+ * uploader is the artist, a volume in the name is what files the page under Promo Mix:
+ *
+ *     "Thumpa - We Call It Jump Up Jungle Vol 4"  on the channel "Thumpa"
+ *     ->  2026-01-02 - Thumpa - We Call It Jump Up Jungle Vol 4, filed under Promo Mix
+ *         and NOT under "We Call It Jump Up Jungle Vol"
+ *
+ * The tenth is a podcast that took the word into its own name ("Truancy Volume 300"), which
+ * mdbTitleShowNotPromoWords and the wiki's own answer are what keep out.
+ */
+var mdbTitlePromoMixImpliedWords = [
+    "mix", "mixtape", "volume", "vol"
+];
+
+
+/*
+ * mdbTitleShowNotPromoWords
+ *
+ * The words that keep a name OUT of Category:Promo Mix. A podcast, a radio show or a series is
+ * put out BY something, and a self-released mix is exactly what it is not - so wherever the
+ * parse is about to file a page as a promo, one of these words in the name is what stops it
+ * (mdbTitle_saysShowNotPromo).
+ *
+ * Deliberately NOT mdbTitleShowSuffixWords, although the words overlap: the mix words on that
+ * list ("Mix", "Mixtape", "Volume") are the ones that SAY self-released - a fence built from it
+ * would refuse every name this filing exists for. The wiki answers the other half of the
+ * question: a name it knows as a podcast/show/radio is a show whatever its words say
+ * (mdbTitle_knownEntityType).
+ */
+var mdbTitleShowNotPromoWords = [
+    "podcast", "radio", "radioshow", "show", "sessions", "series", "cast", "fm"
+];
+
+
+/*
+ * Group 1: the date
+ *
+ * Two sources may be used, the player title and the upload/release date.
+ *
+ * - A date written in the title ALWAYS wins, including when the upload date is the earlier of
+ *   the two. The two legitimately differ - radio shows get uploaded days later, old sets years
+ *   later - and the title is the only one of the two that names the mix's own date.
+ * - When the digits in the title read several ways ("07/03/2019" as 7 March or 3 July,
+ *   "030426" as DDMMYY/MMDDYY/YYMMDD), the upload date decides between those readings: the one
+ *   closest to it wins, and on a tie the earlier one does, since a mix is normally recorded
+ *   before it is uploaded.
+ * - No date in the title at all -> the upload date, which is a guess and says so in the
+ *   confidence reasons.
+ *
+ * A month and year make a date ONLY as a group of their own. A part of the date that is not
+ * known is LEFT OFF, never padded: "2026-03", and "2026" if even the month is missing - not
+ * "2026-03-XX" or "2026-XX-XX".
+ *     "Adriana Lopez at RAW x Monnom Black | Mar 2026"  ->  2026-03
+ *     "House Set August 2026 - Simeon Sarfati"          ->  the upload date; "August 2026" is
+ *                                                           part of the mix's NAME, not a date
+ * A year on its own ("1998") is still never read as a date, for the same reason - it is part
+ * of a name far more often than it is the year of the mix, and there is an exact upload date
+ * to fall back to. The "YYYY" spelling above is what to use if that ever changes.
+ */
+
+
+/*
+ * The date of a live recording
+ *
+ * The upload date is a fair guess for what makes up most uploads: a podcast episode goes up on
+ * its release day. It is never the gig date of a set that was PLAYED SOMEWHERE. Such a
+ * recording goes online whenever it is ready - the weekend after, months later, sometimes years
+ * later - so a title that comes out as a live recording and carries no date of its own only
+ * claims the YEAR of the upload date:
+ *
+ *     "DJ Set @ What Happens Label Night 2026"  (channel "Alex Esser", uploaded 2026-06-28)
+ *     ->  2026 - Alex Esser @ What Happens Label Night 2026
+ *
+ * The year there comes from the UPLOAD DATE, not from the "2026" the event writes into its own
+ * name - that one stays where it stands, as part of the name.
+ *
+ * A year behind the place LIST is the other case. "@ Event, Venue" and "@ Venue, City" name
+ * places, and a place is not named after a year - so a year trailing the list is the gig
+ * year: it beats the upload year (the title is the only source that dates the gig) and it
+ * leaves the title, since the date group carries it from then on:
+ *
+ *     "Kernel Existence - live@3000Grad Festival @Utopia 2021"  (uploaded 2021-08-10)
+ *     ->  2021 - Kernel Existence @ 3000Grad Festival, Utopia
+ *
+ * The "," is what tells the two apart: a year glued to the ONE place name a title carries
+ * ("... Label Night 2026") may be the edition's own name and stays, a year behind the comma
+ * of the place list dates the recording (mdbTitle_takeRecordingYear in title_builder.js).
+ *
+ * The "@" is what says it, whichever rule put it there: the words of mdbTitleLiveAtWords, the
+ * mdbTitleVenueConnectors, an event name (mdbTitleEventWords), a venue MixesDB knows, or an "@"
+ * the uploader typed. All of them mean the same thing, so they get the same date. An "@" in
+ * front of a DATE is none of them and is read as the separator it is long before this, since a
+ * date is not a place. An "@" in front of a "#"-numbered EPISODE is the one case where the
+ * title comes out as a SERIES and still gets this date: the series is what is written, but the
+ * "@" is the uploader's own and a set played somewhere is uploaded whenever it is ready, so the
+ * day is not claimed there either (see the "#" section below).
+ *
+ * A MONTH refines that year, and only there:
+ *
+ *     "Live@Elsewhere Loft July"  (channel "alexander:louis", uploaded 2026-07-27)
+ *     ->  2026-07 - alexander:louis @ Elsewhere Loft
+ *
+ * A month NAME ending a live recording's title is when it was played, and it leaves the place
+ * name as it goes - "Elsewhere Loft", not "Elsewhere Loft July". Nothing looser may read a bare
+ * month: outside a live recording's place name it is part of a name far more often than it is a
+ * date ("Mar Monzon", "May Day"), which is why mdbTitle_findDate has no pattern for one.
+ *
+ * A date written in the title still wins over all of this, exactly as above - it is the only
+ * source that names the mix's own day:
+ *
+ *     "Adriana Lopez at RAW x Monnom Black | Mar 2026"  ->  2026-03
+ */
+
+
+/*
+ * mdbTitleUsernameConversions
+ *
+ * Channel/profile name (SoundCloud API field "username") -> the show/podcast entity a
+ * MixesDB mix page title uses for it. The channel name is the only reliable hint we have,
+ * since the track title itself often carries just the artist and an episode number.
+ *
+ * "NTS Latest": "NTS Radio"  ->  "2026-04-03 - Ruf Dug - NTS Radio"
+ *
+ * Notes:
+ * - The lookup is case-insensitive, so a casing slip in a key still works.
+ * - Map a channel to an EMPTY STRING when it is not a show at all (e.g. an artist uploading
+ *   their own club recordings) - the title then ends after the artist:
+ *       "Some Artist": ""      ->  "2026-04-03 - Some Artist"
+ * - A channel that is NOT listed here falls back to its raw channel name, so the common
+ *   case of an unmapped show still produces something usable.
+ * - The VALUE is the show as MixesDB writes it, and it is used twice: as the entity spelled
+ *   out in the title and - with the episode number stripped - as the category the page is
+ *   filed under. The title never overrides a mapped value; see the next note.
+ *
+ * A name written without its spaces:
+ * Uploaders glue a name into one word as readily as they space it out - "FrenzyPodcast #233"
+ * for the show "Frenzy Podcast". A name is therefore matched with its INNER spaces optional
+ * (mdbTitle_escapeReLooseSpaces), so the curated name is still found in the title and taken
+ * out of it, and the suggestion carries the curated spelling, never the glued one. Without
+ * this the mapped name is simply "not in the title", and the rule that reads a show off the
+ * title ("<Show> #NNN - <Artist>") wins with the uploader's spelling - that is exactly the
+ * reported "FrenzyPodcast 233". Only the spacing is loose: the whole name still has to stand
+ * there, word boundaries around it and all, and it holds for a raw channel name the same way
+ * it holds for a mapped one.
+ */
+var mdbTitleUsernameConversions = {
+    "Frenzy": "Frenzy Podcast", // Not FrenzyPodcast
+    "NTS Latest": "NTS Radio",
+    "Resident Advisor": "RA Podcast"
+};
+
+
+/*
+ * mdbTitleChannelSeriesConversions
+ *
+ * mdbTitleUsernameConversions' sibling for the show whose title only names it HALF: the word
+ * in the title is generic ("DJ Mix") and the channel is what says whose it is. Keys are
+ * channel names as the site's API gives them, exactly like mdbTitleUsernameConversions; the
+ * value maps the words the title carries to the show MixesDB files the mix under:
+ *
+ *     "Dance TV": { "DJ Mix": "Dance TV DJ Mix" }
+ *     ->  "DJ MIX #679 - Miss Luna" on the channel "Dance TV"
+ *         becomes  2026-08-04 - Miss Luna - Dance TV DJ Mix 679
+ *
+ * Read as: on this channel, a title carrying "DJ Mix" is an episode of "Dance TV DJ Mix".
+ * The words grow into the curated name INSIDE the title, so every rule that follows finds the
+ * full name standing where the half one stood, and the channel counts as mapped to it - the
+ * entity in the title and the entity category (number stripped) both come out curated.
+ *
+ * Why mdbTitleUsernameConversions cannot carry this: mapping "Dance TV" -> "Dance TV DJ Mix"
+ * outright would stamp the show onto EVERY upload of the channel, festival sets and specials
+ * included. Here the title has to say the word first - an upload without it falls through to
+ * the ordinary rules untouched.
+ *
+ * Notes:
+ * - the channel lookup is case-insensitive, so a casing slip in a key still works
+ * - and it is made with the channel name as the SITE gives it, whatever name the parse works
+ *   with further on: a channel crediting its maker is reduced to that maker before most rules
+ *   read it ("WHATS POPPIN by AKA AKA" -> "AKA AKA"), and an entry keyed on the full name -
+ *   which is how these keys are written - would never be found again. Write the key the way
+ *   the site writes the channel, not the way a title spells one of its names
+ * - the words are matched in any case and with their inner spaces optional ("DJ MIX",
+ *   "DJMix"), always as whole words - the same looseness a mapped channel name gets
+ * - and, on top of that, the dash or colon BETWEEN the words is free: write the key the way
+ *   the channel writes it and it still matches every other punctuation the same uploader
+ *   uses for the same show ("Juno Daily - In The Mix", "Juno Daily: In The Mix",
+ *   "Juno Daily In The Mix"), see mdbTitle_escapeReLooseSeparators. So a key is never a
+ *   regex and never needs to be one - "[-\u2013]" in a key would look for those brackets
+ *   in the title, and the key doubles as what the report panel shows a reporter
+ * - of the two names the longer one is looked for first, so whichever of them contains the
+ *   other, the more specific match wins: "Dance TV DJ Mix #680" does not grow a second
+ *   "Dance TV" in front of itself, and "Juno Daily - In The Mix: Space Ghost" loses the
+ *   whole show name rather than just the "Juno Daily" at its front
+ * - several word entries per channel are fine, and a channel that writes the same show both
+ *   in full and halved needs two of them ("Juno Daily - In The Mix" AND "In The Mix"). They
+ *   are searched TOGETHER, longest name first, so the order they are written in does not
+ *   matter and the more specific of two overlapping names always wins
+ * - and the words a title really wrote are NOT lost when an entry rewrites them: the show
+ *   MixesDB has wins the suggestion, and the key is offered next to it as a "Switch title"
+ *   chip (kind "entityName", mdbTitle_curatedNameGrown). Which is why a key is worth writing
+ *   in the spelling a MixesDB title would carry - the chip writes it into the title field
+ */
+var mdbTitleChannelSeriesConversions = {
+    "Dance TV": { "DJ Mix": "Dance TV DJ Mix" }, // https://soundcloud.com/dancetelevision/mister-joshooa-detroit-usa
+    "Juno Daily": {
+        "Juno Daily – In The Mix": "Juno Daily", // https://soundcloud.com/junodailyonline/juno-daily-in-the-mix-space
+        "In The Mix": "Juno Daily"               // https://soundcloud.com/junodailyonline/in-the-mix-ben-diggins
+    },
+    "Playhaus": { "Playhaus": "Playhaus Podcast" }, // https://soundcloud.com/playhausww/playhaus-001-guliver
+    "WHATS POPPIN by AKA AKA": { "Rhythm Prism": "Rhythm Prism Radio" } // https://soundcloud.com/aka-aka/rhythm-prism-by-aka-aka-episode-085
+};
+
+
+/*
+ * mdbTitleTypoFixes
+ *
+ * Misspellings corrected before the title is parsed at all, i.e. before any rule reads a word
+ * of it. A typo in an ordinary word costs a letter; a typo in a word the PARSER reads costs
+ * the whole title:
+ *
+ *     "Phono music club podcats by Neryn"  (channel "PHONO Music Club")
+ *     WRONG: 2026-08-10 - PHONO Music Club - podcats by Neryn (Promo Mix)
+ *     RIGHT: 2026-08-10 - Neryn - PHONO Music Club Podcast
+ *
+ * "podcats" is not in mdbTitleShowSuffixWords, so the channel name never grew into
+ * "PHONO Music Club Podcast", and everything after that followed from it.
+ *
+ * Only for words that can be nothing BUT a typo of a word the parser reads - never for a
+ * spelling somebody may have meant. The case of what was typed is kept ("PODCATS" comes back as
+ * "PODCAST", not as "Podcast"): which case a bit of the title is in is a question
+ * mdbTitle_toNormalCase answers later, off the bit as a whole, and this must not answer it early.
+ */
+var mdbTitleTypoFixes = [
+    { wrong: /\bpodcats\b/gi, right: "podcast" },
+    { wrong: /\bpodast\b/gi,  right: "podcast" },
+    { wrong: /\bpocast\b/gi,  right: "podcast" }
+];
+
+
+/*
+ * mdbTitleLabelWords / mdbTitleKnownLabels
+ *
+ * What an uploader puts in brackets behind an artist is usually the LABEL or the crew that
+ * artist is on, and a MixesDB mix page title does not carry it:
+ *
+ *     "HMWL Podcast 439: Tooker (SONARA / Crosstown Rebels)"
+ *     WRONG: 2026-08-05 - Tooker SONARA Crosstown Rebels - HMWL Podcast 439
+ *     RIGHT: 2026-08-05 - Tooker - HMWL Podcast 439
+ *
+ * Nothing in the SHAPE of "(SONARA / Crosstown Rebels)" says that - it reads exactly like a
+ * bracket holding a second artist - so the names in it are tested against three things in turn,
+ * cheapest first (mdbTitle_isLabelName in title_builder.js):
+ *
+ * 1. mdbTitleLabelWords - the word a label writes into its own name ("Records", "Recordings",
+ *    "Rec.", "Label"). One of those and there is nothing left to ask.
+ * 2. mdbTitleKnownLabels - the labels and event organisers reported so far, by name. Kept
+ *    ALPHABETICAL so it stays readable as it grows, and extended by hand from reports.
+ * 3. the labels this mix's own TRACKLIST credits, which is where a label is written out in
+ *    full: "Artist - Title [Label]" and "Artist - Title [Label - Cat#]". A name the uploader
+ *    credits behind a track is a label whether or not any list here knows it - which is what
+ *    makes this work for the label nobody has reported yet. The site script hands the
+ *    description over; a site that has none simply stops after step 2.
+ *
+ * EVERY name in the bracket has to pass for the bracket to be dropped. "(SONARA / Crosstown
+ * Rebels)" only goes because both do - a bracket holding one label and one unknown word is far
+ * more likely to be something we have not understood than a label credit, and a wrong drop
+ * takes a name out of the title for good.
+ *
+ * WHAT MUST NOT GO ON THE LIST, because being on it means "delete this name":
+ *
+ * - a CLUB or a PARTY brand, even when it also runs a label - fabric, Afterlife, Circoloco,
+ *   Music On, Paradise, Verknipt, Renaissance, Dekmantel. "Some DJ (fabric)" says where the set
+ *   was recorded, and MixesDB carries that as "Some DJ @ fabric". Those names belong on a venue
+ *   list, where the answer is an "@" - the opposite of dropping them.
+ * - a name that reads as an ARTIST first - Truncate, Soul Clap, Bedouin all release on the
+ *   label they are named after, and the person is who a title behind a bracket usually means.
+ * - an ordinary phrase - "Warm Up", "Elements", "Time Is Now". "(Warm Up)" behind a name is a
+ *   warm-up set in nearly every title it turns up in, whoever else uses the words as a label.
+ *
+ * The list is compared with mdbTitle_normalizeCompare(), which folds to a-z0-9 - so case,
+ * punctuation and spacing in an entry cost nothing ("R&S" matches "R & S"), and a name written
+ * in a non-latin alphabet cannot be matched at all and does not belong here yet.
+ *
+ * Two Schallplatten entries are redundant against mdbTitleLabelWords above and are kept anyway:
+ * this list is a register of labels, and a reader checking whether one is known should not have
+ * to know the regex to answer it.
+ */
+var mdbTitleLabelWords = /\b(?:labels?|records?|recordings?|recs?|imprint|schallplatten)\b\.?/i;
+
+/*
+ * mdbTitleLabelSeparators
+ *
+ * How a bracket separates the several labels it credits. Uploaders reach for whatever is on the
+ * keyboard, and all of these mean the same thing:
+ *
+ *     "(SONARA / Crosstown Rebels)"   "(SONARA, Crosstown Rebels)"   "(SONARA + Terminal M)"
+ *     "(SONARA & Crosstown Rebels)"   "(SONARA; Crosstown Rebels)"   "(SONARA x Terminal M)"
+ *
+ * Punctuation splits with or without whitespace around it, so "SONARA/Crosstown Rebels" comes
+ * apart too. The four that a NAME also contains - "-", "+", "&" and the word joiners - need
+ * whitespace on both sides, which is what keeps "Mote-Evolver" and "R&S" in one piece.
+ *
+ * That still leaves the label whose name holds a separator with spaces and all ("Lost & Found",
+ * "aufnahme + wiedergabe"), which is why mdbTitle_dropLabelBrackets tests the WHOLE bracket as
+ * one name BEFORE it splits anything: only what is not a label as a whole is read as a list.
+ *
+ * What that does not reach is such a name standing in a list of several - "(Lost & Found /
+ * Drumcode)" splits into three halves and the bracket stays. It errs the safe way (a bracket
+ * kept, not a name deleted) and is rare enough to leave: taking it on means trying every way of
+ * re-joining the parts, which is a lot of machinery for a bracket nobody has reported yet.
+ */
+var mdbTitleLabelSeparators = /\s*[,;\/|•·]+\s*|\s+[-–—+&]\s+|\s+(?:x|and|und|by)\s+/i;
+
+var mdbTitleKnownLabels = [
+    "2DIY4",
+    "A State of Trance",
+    "A-TON",
+    "Abora",
+    "AD 93",
+    "All Day I Dream",
+    "Amsterdam Trance",
+    "Anjunabeats",
+    "Anjunadeep",
+    "Apollo",
+    "Armada Music",
+    "Armind",
+    "ARTS",
+    "aufnahme + wiedergabe",
+    "Aus Music",
+    "AVA",
+    "Avian",
+    "Axis",
+    "Balance Music",
+    "Banoffee Pies",
+    "Bar 25 Music",
+    "Bedrock",
+    "Black Hole",
+    "Blueprint",
+    "Bonzai Progressive",
+    "Bordello A Parigi",
+    "BOYSNOIZE",
+    "BPitch",
+    "Bunker",
+    "Butter Sessions",
+    "Cajual",
+    "Central Processing Unit",
+    "Chapter 24",
+    "Classic Music Company",
+    "Clone",
+    "CLR",
+    "Cocktail d'Amore Music",
+    "Cocoon",
+    "Coldharbour",
+    "Colorize",
+    "Correspondant",
+    "Craigie Knowes",
+    "Crème Organization",
+    "Crosstown Rebels",
+    "Cuttin' Headz",
+    "D.KO",
+    "Dark Entries",
+    "Deeply Rooted",
+    "Defected",
+    "Delsin",
+    "Delusions of Grandeur",
+    "Desolat",
+    "DFTD",
+    "Dial",
+    "Dirtybird",
+    "Disco Halal",
+    "Disco Inferno",
+    "Diynamic",
+    "Drumcode",
+    "Dystopian",
+    "Eastenderz",
+    "Elrow Music",
+    "Enhanced Music",
+    "Etruria Beat",
+    "Falling Ethics",
+    "Figure",
+    "Filth on Acid",
+    "Flashover",
+    "Freerange",
+    "Fuse London",
+    "Future Sound of Egypt",
+    "Get Physical Music",
+    "Glitterbox",
+    "Global Underground",
+    "Grotesque Music",
+    "Hardgroove",
+    "HAYES",
+    "Heist",
+    "HEKATE",
+    "Herrensau",
+    "Hessle Audio",
+    "Hive Audio",
+    "Hot Creations",
+    "Hottrax",
+    "Houndstooth",
+    "Hypercolour",
+    "Iboga",
+    "Ilian Tape",
+    "In Trance We Trust",
+    "Infuse",
+    "Innervisions",
+    "Interplay",
+    "Intrepid Skin",
+    "Kalahari Oyster Cult",
+    "Kann",
+    "Kanzleramt",
+    "Katermukke",
+    "Keinemusik",
+    "Killekill",
+    "Kindisch",
+    "King Street Sounds",
+    "Klasse Wrecks",
+    "Klockworks",
+    "Kneaded Pains",
+    "Knee Deep In Sound",
+    "Kompakt",
+    "Kontra-Musik",
+    "Last Night on Earth",
+    "LENSKE",
+    "Life and Death",
+    "Live at Robert Johnson",
+    "Livity Sound",
+    "Lobster Theremin",
+    "Local Talk",
+    "Lost & Found",
+    "MadTech",
+    "Magik Muzik",
+    "Malka Tuti",
+    "MDR",
+    "Metroplex",
+    "microCastle",
+    "Mobilee",
+    "Modularz",
+    "Monkeytown",
+    "Monstercat Silk",
+    "Moon Harbour",
+    "Mord",
+    "Mote-Evolver",
+    "Moxy Muzik",
+    "Multi Culti",
+    "Mutual Rytm",
+    "Nachtstrom Schallplatten",
+    "Naked Lunch",
+    "Nano",
+    "Nervous",
+    "NINETOZERO",
+    "Nite Grooves",
+    "Nocturnal Knights Music",
+    "Northern Electronics",
+    "Nous'klaer Audio",
+    "Numbers",
+    "Objektivity",
+    "Octopus",
+    "Odd One Out",
+    "Optimo Music",
+    "Ostgut Ton",
+    "Ovum",
+    "Peach Discs",
+    "Perc Trax",
+    "Perfecto",
+    "Perlon",
+    "Permanent Vacation",
+    "Phantasy Sound",
+    "Pinkman",
+    "PIV",
+    "Planet E",
+    "Planet Rhythm",
+    "Plus 8",
+    "Poker Flat",
+    "PoleGroup",
+    "Pure Trance",
+    "Purified",
+    "R&S",
+    "Razor-N-Tape",
+    "Reaching Altitude",
+    "Rekids",
+    "Relief",
+    "Repopulate Mars",
+    "Rhythm Section International",
+    "Rose Avenue",
+    "Roush",
+    "Rumors",
+    "Running Back",
+    "Rush Hour",
+    "Salin",
+    "Saved",
+    "Second State",
+    "Semantica",
+    "Senso Sounds",
+    "Shall Not Fade",
+    "Shipwrec",
+    "Siamese",
+    "Skylax",
+    "Smallville",
+    "Snatch!",
+    "Sneaker Social Club",
+    "Sola",
+    "Solid Grooves",
+    "Soma",
+    "SONARA",
+    "Sonic Groove",
+    "Sound Signature",
+    "Sous Music",
+    "Steel City Dance Discs",
+    "Steyoyoke",
+    "Stil vor Talent",
+    "Strictly Rhythm",
+    "Stroboscopic Artefacts",
+    "Studio Barnhus",
+    "Suanda Music",
+    "Suara",
+    "Subculture",
+    "Sudbeat",
+    "Sweat It Out",
+    "Symbolism",
+    "Systematic",
+    "Talman",
+    "Terminal M",
+    "The Soundgarden",
+    "This Never Happened",
+    "Tidy",
+    "Timedance",
+    "Token",
+    "Toolroom",
+    "Toy Tonics",
+    "Trapez",
+    "Traum Schallplatten",
+    "Tresor",
+    "Truesoul",
+    "Turbo",
+    "UFO Inc.",
+    "Uncanny Valley",
+    "Underground Resistance",
+    "Up The Stuss",
+    "VANDIT",
+    "VIVa MUSiC",
+    "Voitax",
+    "Watergate",
+    "Who's Afraid of 138?!",
+    "Whose These",
+    "Wolf Music",
+    "WSNWG",
+    "Yoruba"
+];
+
+
+/*
+ * mdbTitleNoise
+ *
+ * Patterns removed from the player title before it is parsed. Only for decoration that
+ * is never part of a MixesDB title - keep this list conservative, since anything matched
+ * here is silently dropped from the artist name.
+ */
+var mdbTitleNoise = [
+    /\[\s*free\s*(?:download|dl)?\s*\]/gi,
+    /\(\s*free\s*(?:download|dl)?\s*\)/gi,
+    /\*+\s*free\s*(?:download|dl)?\s*\*+/gi,
+    /\bfree\s*(?:download|dl)\b/gi,
+    /\[\s*(?:premiere|exclusive)\s*\]/gi,
+    /\(\s*(?:premiere|exclusive)\s*\)/gi
+];
+
+
+/*
+ * mdbTitleExtraArtistConnectors
+ *
+ * Words that introduce FURTHER artists, e.g. "Slowciety w/ Asa 808". Everything from the
+ * connector up to the next separator is taken out of the title and appended to the artist
+ * group with mdbTitleExtraArtistJoiner - it is never a group of its own.
+ *
+ * What stands in FRONT of the connector decides whether there is a first artist at all:
+ *
+ *     "Rinse France Show - Slowciety w/ Asa 808"   ->  artist "Slowciety, Asa 808"
+ *     "Yoyaku Instore Sessions with TONTON & TATA" ->  artist "Tonton & Tata"
+ *
+ * The first names an artist, the second a series ("Sessions"), and only the first one joins
+ * the artist group. A channel name at the start of a series title is part of that title and
+ * is NOT an artist - "yoyaku" does not belong in front of "Tonton & Tata" just because the
+ * mix was uploaded by it. A bit is read as a series by the same test the title's own split
+ * uses: a series word beats a bare number beats nothing.
+ *
+ * Deliberately NOT listed here:
+ * - "presents" / "pres." - the name in front of it is the PRESENTER (the show), not a second
+ *   artist: "fabric presents Bonobo".
+ * - "feat." / "ft." - on a mix that is a guest on one track, not someone who played the set.
+ *
+ * Careful: a connector is matched anywhere in the title, so an ordinary English word misfires
+ * on an ordinary phrase - "Live with Love - Some Artist" reads as the artists "Live, Love".
+ * "with" is in the list because it is the far more common case on a mix title, but it is the
+ * one entry worth removing if that turns out to be the wrong trade. Shorthands like "w/"
+ * carry no such risk, so prefer them when extending the list. "w." sits in between: it can
+ * collide with an initial inside a name ("Andrew W. K."), which is rare enough on a mix
+ * title to take.
+ *
+ * One shape is known to misfire and is ruled out: a connector with the series NUMBER behind it
+ * stands INSIDE a name and introduces nobody.
+ *
+ *     "From Paris With Hope Vol.14"  ->  the whole title is the mix name, there is no "Hope"
+ *                                        who played it
+ *
+ * The number is what settles it. A name behind the connector is an artist as usual, digits in
+ * it or not - "Slowciety w/ Asa 808" still names Asa 808 - because only an episode KEYWORD
+ * ("Vol.14", "Episode 72") says the series name goes on past the connector.
+ *
+ * And only when what stands in FRONT of the connector is not a series already: in
+ * "Some Show w/ DJ Koze Vol.3" the number belongs to the show in front, and DJ Koze is its
+ * guest like anybody else behind a "w/".
+ */
+var mdbTitleExtraArtistConnectors = [
+    "w/",
+    "w.",
+    "with"
+];
+
+
+/*
+ * mdbTitleExtraArtistJoiner
+ *
+ * How the extra artists are joined onto the first one. Help:Add_a_new_mix_page reserves " & "
+ * for artists who played TOGETHER (b2b) - "w/" says nothing about that, and playing after one
+ * another is the normal case, so "," is what we assume. The suggestion says so in its
+ * confidence reasons, since only the recording itself can settle it.
+ *
+ * And one artist group carries ONE joiner. Where this "," meets an "&" the uploader wrote
+ * between two of the names it strings together, the "&" becomes a "," as well:
+ *
+ *     "Observatory 143 - Sungate [with Lucient & Moy Santana]"
+ *     ->  "Sungate, Lucient, Moy Santana", never "Sungate, Lucient & Moy Santana"
+ *
+ * because a group using both says that Lucient and Moy Santana played together while Sungate
+ * played before or after them - a claim nothing in the title makes. This "," is an assumption,
+ * the "&" is the uploader's, and the assumption is the one that says nothing, so it wins. An
+ * "&" standing alone in a group is left exactly where it is ("Tonton & Tata"), and so are
+ * "b2b", "vs" and "pres.", which are words the uploader wrote about the recording rather than
+ * a separator picked for them. See mdbTitle_oneArtistJoiner() in title_builder.js.
+ */
+var mdbTitleExtraArtistJoiner = ", ";
+
+
+/*
+ * mdbTitleTogetherArtistJoiners
+ *
+ * Words that join artists who played TOGETHER, and are replaced by the " & " that
+ * Help:Add_a_new_mix_page uses for exactly that: "Surgeon x Erika" -> "Surgeon & Erika".
+ * Matched in either case ("x" and "X"), and only inside the artist group - an "x" between two
+ * brands in a venue name ("RAW x Monnom Black") is a collaboration of promoters, not of DJs.
+ *
+ * "b2b" is NOT here: MixesDB writes it out ("Ruf Dug b2b Daniel John Willis"), so it stays.
+ */
+var mdbTitleTogetherArtistJoiners = [
+    "x"
+];
+
+
+/*
+ * mdbTitleArtistJoinerSpellings
+ *
+ * How MixesDB SPELLS a joiner between two artists -> every way it turns up in a player title.
+ * Whatever stands on the right is rewritten to the key on the left, in any case:
+ *
+ *     "See Bastian B2B Afin"  ->  "See Bastian b2b Afin"
+ *     "Surgeon VS. Regis"     ->  "Surgeon vs Regis"
+ *     "Surgeon versus Regis"  ->  "Surgeon vs Regis"
+ *
+ * "b3b" is nobody's spelling - three artists back to back are "b2b2b" - so it is read as a
+ * mistyped "b2b" rather than carried into the title.
+ *
+ * "presents" becomes the "," of mdbTitleExtraArtistJoiner, exactly like the "with" it reads as
+ * by then:
+ *
+ *     "Some Podcast 12 - Foo presents Bar"  ->  "... - Foo, Bar - Some Podcast 12"
+ *
+ * That is the LEFTOVER case, and the only one that reaches this: a presenter whose name the
+ * parser could place is already the entity by now ("fabric presents Bonobo" on the channel
+ * "fabric" -> "Bonobo - fabric", see buildMixesdbTitle 4b). What is left is a "presents" sitting
+ * inside a finished artist group with nowhere for the presenter to go, and two names filed as
+ * two artists beat one category holding the whole phrase.
+ *
+ * The ABBREVIATION is the other word. "pres." says an artist is playing as a project of theirs,
+ * and MixesDB writes that project out in the title as the one act it is:
+ *
+ *     "2024-05-16 - Deetron Pres. Soulmate - fabric Podcast 037"
+ *     "2017-10-25 - Tiefschwarz - Tiefschwarz pres. A Souvenir from…, Ibiza Global Radio"
+ *
+ * so "pres." is normalised (a bare "pres" gets its dot) and then left exactly where it stands.
+ * The two names behind it are still filed as two artists - that page carries both
+ * [[Category:Deetron]] and [[Category:Soulmate (Sam Geiser)]] - which is mdbTitleArtistSplitJoiners'
+ * job, not this list's. Spelling the joiner out and abbreviating it are therefore NOT the same
+ * word here, and that is the only signal there is: an uploader who typed the whole word is
+ * introducing somebody, one who typed "pres." is naming a project.
+ *
+ * Applied to the ARTIST group only, and never to the entity: an entity is a name, and a mix
+ * called "Techno versus House" is not two artists playing against each other.
+ *
+ * A joiner needs whitespace on both sides to be one, which is what keeps the "vs" of a name out
+ * of it. Variants are tried longest first, so "b2b2b" is never read as "b2b" with a stray "2b"
+ * behind it. A joiner written as punctuation swallows the space in front of it, so it comes out
+ * as "Foo, Bar" and not "Foo , Bar".
+ */
+var mdbTitleArtistJoinerSpellings = {
+    "b2b2b": [ "b2b2b" ],
+    "b2b":   [ "b2b", "b3b" ],
+    "vs":    [ "vs", "vs.", "versus" ],
+    "pres.": [ "pres.", "pres" ],
+    ",":     [ "presents", "present" ]
+};
+
+
+/*
+ * mdbTitleArtistSplitJoiners
+ *
+ * What separates two ARTISTS inside the artist group - i.e. every way a MixesDB title can say
+ * "more than one person played this". The Page Creator files one [[Category:<name>]] per artist
+ * off this list, so a joiner missing from it costs a category:
+ *
+ *     "2023-08-02 - See Bastian b2b Afin - ..."
+ *     ->  [[Category:See Bastian]] [[Category:Afin]], never [[Category:See Bastian b2b Afin]]
+ *
+ * The "," (one after another) and the "&" (together) are what the builder itself writes; the
+ * word joiners are here because the title is EDITABLE - what the reader corrected it to has to
+ * be filed the same way, and they type "b2b", "vs" and "feat." rather than the builder's
+ * spelling.
+ *
+ * A word joiner needs whitespace on both sides, which is what keeps the "x" in "Maxxi
+ * Soundsystem" out of it - see mdbTitle_splitArtists(). The "," does not, and it is the one
+ * entry that can also stand inside a name, which is a trade MixesDB makes as well.
+ *
+ * "pres." is here and NOT in mdbTitleArtistJoinerSpellings, which is the whole point of the two
+ * lists being separate: the title keeps the phrase whole ("Deetron pres. Soulmate" - the project
+ * is what played), and the categories still get both names. That is what the wiki does with it:
+ * "2024-05-16 - Deetron Pres. Soulmate - fabric Podcast 037" is filed under [[Category:Deetron]]
+ * AND [[Category:Soulmate (Sam Geiser)]].
+ *
+ * Longest entry first, so "b2b2b" is not read as "b2b" with a stray "2b" behind it.
+ */
+var mdbTitleArtistSplitJoiners = [
+    "b2b2b", "b3b", "b2b",
+    "versus", "vs.", "vs",
+    "featuring", "feat.", "feat", "ft.", "ft",
+    "pres.", "pres",
+    "&", "x"
+];
+
+
+/*
+ * mdbTitlePlaceJoinerWords
+ *
+ * The little word that strings two PLACES together behind the "@" - two crews throwing one
+ * night, an event visiting a club. MixesDB writes it the way the uploader does and files the
+ * page under BOTH names:
+ *
+ *     "Karotte @ AYLI X OURS Frankfurt"
+ *     ->  2026-08-07 - Karotte @ As You Like It X OURS, Frankfurt
+ *         [[Category:As You Like It (Frankfurt)]] [[Category:OURS]]
+ *
+ * Only "x", and only behind the "@". In front of it the same letter joins two ARTISTS and is
+ * rewritten to the "&" MixesDB spells a line-up with (mdbTitleArtistSplitJoiners) - which is
+ * a different job: a line-up is one group of names in one slot, these are two names the page
+ * is filed under separately.
+ *
+ * The "&" is deliberately NOT here, however alike the two look. Behind the "@" it stands
+ * inside names far too often ("Rock & Roll Bar"), and where it really joins two places the
+ * title reads right either way - "Brotfabrik & k²0 Open Air" was reported and accepted as one
+ * name. An "x" with whitespace on both sides is the one joiner no place is called by, which
+ * is what makes it safe to split on; the same whitespace is what keeps the "x" of "Maxxi
+ * Soundsystem" out of it.
+ *
+ * What the split is FOR is the lookup: read as one name the wiki is asked about
+ * "AYLI X OURS", which can only answer empty, while "OURS" - an event it knows - is never
+ * asked at all. The TITLE keeps the word exactly as the uploader typed it.
+ *
+ * No mdbTitleDefinitionDocs entry: the panel offers a list behind the "?" of a cleanup STEP,
+ * and this list writes none - the split it decides is what section 1 shows as two chunks
+ * instead of one, which is where a reporter sees it.
+ */
+var mdbTitlePlaceJoinerWords = [
+    "x"
+];
+
+
+/*
+ * mdbTitleVenueConnectors
+ *
+ * Words that put a VENUE or EVENT behind the artist, replaced by the "@" joiner of
+ * Help:Add_a_new_mix_page#Joiners:_Live_/_@_/_-
+ *
+ *     "Adriana Lopez at RAW x Monnom Black"  ->  "Adriana Lopez @ Monnom Black"
+ *
+ * Careful: "at" is an ordinary English word, so it misfires on an ordinary phrase the same way
+ * "with" does in mdbTitleExtraArtistConnectors. It is here because a mix title naming a place is far
+ * more common than one using "at" as a preposition, but it is the entry to remove first if
+ * that turns out wrong. Two words have to stand in front of it for that reason, which is what
+ * keeps "Look at Me" a mix name - see mdbTitleLiveAtWords for the case that overrules the count.
+ */
+var mdbTitleVenueConnectors = [
+    "at"
+];
+
+
+/*
+ * mdbTitleLiveAtWords
+ *
+ * "Live at <place>" says outright what the rest of the parser can only guess at: this was
+ * RECORDED SOMEWHERE, at an event, a club or a radio station. So it is an "@", however few
+ * words stand in front of it - one name is enough, and the two-word count that keeps ordinary
+ * English out of mdbTitleVenueConnectors does not apply:
+ *
+ *     "Anja Schneider - Live at Docklands"  ->  "2016-07-14 - Anja Schneider @ Docklands"
+ *
+ * The separator in front goes with it: the artist and the place they played at are ONE group
+ * ("Anja Schneider @ Docklands"), never two. The word "Live" itself is dropped - MixesDB says
+ * that with the joiner alone, see Help:Add_a_new_mix_page#Joiners:_Live_/_@_/_-
+ *
+ * "at" and "@" both count as the connector behind the word, so "Live @ Docklands" is the same
+ * title - and around the "@" the blanks are optional, because punctuation is its own boundary:
+ *
+ *     "Live@Elsewhere Loft July"  (channel "alexander:louis")
+ *     ->  2026-07 - alexander:louis @ Elsewhere Loft
+ *
+ * "DJ set" and "DJ mix" say the same thing as "Live" and are on the list for the same reason.
+ * What they do NOT say is who played: nothing in "DJ Set @ <place>" is a name, so the words go
+ * and the CHANNEL is the artist, exactly as with a title opening on "Live at".
+ *
+ *     "DJ Set @ What Happens Label Night 2026"  (channel "Alex Esser")
+ *     WRONG: 2026-06-28 - DJ Set @ What Happens Label Night 2026
+ *     RIGHT: 2026 - Alex Esser @ What Happens Label Night 2026
+ *
+ * The blank INSIDE a two-word entry is optional as well, and a "-", "." or "_" may stand in its
+ * place: "DJmix@Docks", "DJ-Set at Docks" and "Liveset at Docks" are the same words typed the
+ * way uploaders type them, and the marker has to go in all of them - it must never survive into
+ * the name in front of the "@" ("Anja Schneider - DJmix @ Docks").
+ *
+ * A SEPARATOR may stand between the marker and the connector behind it, because a marker the
+ * uploader put in brackets is a chunk of its own by the time this runs - the brackets became
+ * "|" (see mdbTitle_bracketsToSeparators), and the place is then in the next chunk:
+ *
+ *     "Deetron pres. Soulmate [2hr Live Mix] at The Yard"  (channel "Meat Free")
+ *     read as   "Deetron pres. Soulmate | 2hr Live Mix | at The Yard"
+ *     ->  2026-07-25 - Deetron pres. Soulmate @ The Yard
+ *
+ * Longest entry first: they are tried in order and "live" would otherwise swallow the start of
+ * "live set".
+ *
+ * A marker with NO place behind it is dropped, not kept
+ *
+ * The words say WHERE only when a place follows them. Standing at the end of a title they say
+ * how the set was played, and MixesDB writes that nowhere - there is no group for it:
+ *
+ *     "Dualism Series #031 - alemiko *live"  (channel "Dualism.Berlin")
+ *     WRONG: 2026-08-12 - Alemiko *Live - Dualism Series 031   (and the artist category with it)
+ *     RIGHT: 2026-08-12 - Alemiko - Dualism Series 031
+ *
+ * "live" alone does not even settle what it looks like it settles - it may have been a live PA
+ * or a DJ set - and with no venue or event named there is nothing to put behind an "@" either
+ * way. So the word goes and the confidence says so: if the set really was played somewhere, the
+ * venue has to be typed in by hand.
+ *
+ * The marker has to be SET OFF from the name for this - by a separator, by a bracket (which is a
+ * "|" by the time the joiners run) or by an asterisk, which is how an uploader writes an aside.
+ * A name whose last word merely happens to be one of these words keeps it: nothing in "Boiler
+ * Room Live" says the word is an annotation rather than part of the name.
+ *
+ * "All Night Long" is one of these words
+ *
+ * It says HOW LONG the set went, and a set that goes all night went on somewhere - it is what
+ * a club or an event books, never what a feed publishes. So it says the same thing "Live" and
+ * "DJ Set" say, and it is written nowhere on MixesDB either: there is no group for how long
+ * somebody played.
+ *
+ *     "Anton & Hogi Wirjono All Night Long DJ Set at ZODIAC"  (channel "hogi")
+ *     WRONG: 2026 - Anton & Wirjono All Night Long @ ZODIAC
+ *     RIGHT: 2026 - Anton & Hogi Wirjono @ Zodiac
+ *
+ * Markers STACK, which is why that title needs it: the uploader wrote two of them in a row
+ * ("All Night Long DJ Set at"), and only the one touching the connector was ever consumed - so
+ * the other stayed glued to the artist and went into the lookup with it ("Hogi Wirjono All
+ * Night Long" was asked about, "Hogi Wirjono" never). The joiner rule reads a RUN of markers in
+ * front of the connector for this, in any order and with the uploader's separators between
+ * them. Asking mattered: Category:Hogi Wirjono holds mixes, and that answer is what keeps the
+ * channel name "hogi" inside the artist's name instead of being cut out of it.
+ */
+var mdbTitleLiveAtWords = [
+    "recorded live",
+    "all night long",
+    "live set",
+    "live mix",
+    "dj set",
+    "dj mix",
+    "live"
+];
+
+
+/*
+ * Only one " @ " per title
+ *
+ * A MixesDB title writes the joiner ONCE: everything behind it is one place group, joined
+ * with "," - "@ Event, Venue", "@ Venue, City", "@ WE, Dolton Expo Center, Chicago". A player
+ * title saying "@" twice names the place in two steps - the festival and where it was held -
+ * so every "@" after the first becomes the "," of that group (mdbTitle_joinPlaceGroups in
+ * title_builder.js):
+ *
+ *     "Kernel Existence - live@3000Grad Festival @Utopia 2021"  (channel "kernel existence")
+ *     WRONG: 2021 - Kernel Existence @ 3000Grad Festival @ Utopia 2021
+ *     RIGHT: 2021 - Kernel Existence @ 3000Grad Festival, Utopia
+ *
+ * A spelling rule, not a guess - both "@" were the uploader's own, only the second is written
+ * the way MixesDB writes it - so it costs no confidence. The categories read the same rule
+ * from the other end: the ENTITY of a live title is the FIRST place alone ("3000Grad
+ * Festival"), never the joined list - the venue behind the comma is not what the page is
+ * filed under (mdbTitle_titleCategories).
+ *
+ * The order is the answer because MixesDB writes the group from the outside in, the bigger
+ * name first. An uploader who turned it around says so with an EVENT WORD, and then that part
+ * is the entity wherever it stands: "Dave Huismans at Dark Skies, Horst Festival" is a stage
+ * and the festival it stands on, and the page belongs under "Horst Festival", not under "Dark
+ * Skies" (mdbTitle_placeGroupEntity). Only an event word overrules the order - a venue behind
+ * the comma says nothing about which of the two is the bigger name. A CITY behind it is the
+ * one part that is never the entity at all, whatever its position (mdbTitleCities).
+ *
+ * Enforced TWICE, and the second one is the one that holds: once on the whole title before
+ * the venue rules read it (3c2), and once at the single exit (mdbTitle_result) - the event
+ * and venue branches compose "<artist bit> @ <place>" after 3c2, and an artist bit that
+ * already carried an "@" would put a second one into the title ("Kernel Existence @ Utopia |
+ * Ritter Butzke | Berlin" composes "... @ Utopia @ Ritter Butzke, Berlin", which has to come
+ * out as "@ Utopia, Ritter Butzke, Berlin" - also exactly how MixesDB writes a party at a
+ * venue in a city).
+ *
+ * The chunk split says the same thing in units: every " @ " separates, so the title above is
+ * the chunks "Kernel Existence | 3000Grad Festival | Utopia" - each asked about on its own,
+ * never a glued "3000Grad Festival @ Utopia". (The year is gone from the last one because
+ * the date group claimed it - see "The date of a live recording" above.)
+ *
+ * And so does the comma standing in FRONT of an event name: "Dark Skies, Horst Festival" is
+ * two names to the wiki and asks as two chunks (mdbTitle_splitEventComma). The comma joins
+ * everywhere else and has to keep doing so - an artist list ("ANA, Johnny D, DJ Koze") is one
+ * group of names, and a place group written the usual way round carries the event in FRONT of
+ * its comma, so nothing behind it ends in an event word and the group stays one chunk. The
+ * TITLE is untouched by this: the parse keeps writing the place group as the uploader's list.
+ */
+
+
+/*
+ * "Live PA"
+ *
+ * The words of mdbTitleLiveAtWords say only that a set was played somewhere, and go with the
+ * joiner. "Live PA" says MORE - the act performed its own tracks live, not a DJ set - and
+ * that MixesDB DOES write, as "(Live PA)" behind the artist's name:
+ *
+ *     "Kernel Existence - Live PA @ 3000Grad Festival"
+ *     ->  2021 - Kernel Existence (Live PA) @ 3000Grad Festival
+ *
+ * A bare "live" is never this marker: "live@3000Grad Festival" says where, not how, and the
+ * word goes exactly like "Live at". Only the phrase itself counts - "Live PA", "Live P.A.",
+ * "LivePA", bracketed or bare, in any case (mdbTitle_takeLivePa in title_builder.js) - and it
+ * is written behind the ONE artist name. With several artists nothing is written and the
+ * confidence says so: only the uploader knows whose set it was.
+ *
+ * The DESCRIPTION may say the phrase where the title does not, and it counts there too - but
+ * only on a title that reads as a live recording (an "@"), and it costs confidence: a
+ * description's "Live PA" can describe another act on the bill, so the reader is told to
+ * check. On anything else - a podcast episode, a promo mix - the description's word alone
+ * marks nothing.
+ *
+ * The artist CATEGORY stays the bare name either way: "Kernel Existence (Live PA)" is filed
+ * under Kernel Existence (mdbTitle_splitArtists).
+ */
+
+
+/*
+ * mdbTitleRecordingNoteFillers
+ *
+ * What may stand next to a marker word inside a chunk without that chunk stopping to be the
+ * marker. An uploader writes the marker into a bracket together with a note about the recording
+ * - how long it is, that it is the whole thing - and the bracket is a chunk of its own by the
+ * time the joiner rules read it:
+ *
+ *     "Deetron pres. Soulmate [2hr Live Mix] at The Yard"
+ *     ->  the chunk "2hr Live Mix" IS the "Live Mix" marker, and the "@" is put in front of
+ *         "The Yard" as if the title had read "… Soulmate - Live Mix at The Yard"
+ *
+ * mdbTitle_reduceRecordingNotes() cuts the marker and these fillers out of a chunk and only
+ * calls it a marker when NOTHING is left over. That is what keeps a name that merely contains
+ * a marker word out of it: "Live Sessions 12" leaves "Sessions 12" standing and is a show, not
+ * a note about the recording - and dropping it would lose the show.
+ *
+ * So keep this list to words that can only ever be a note. A bare number is deliberately not
+ * one: it is an episode far more often than a duration ("Live Set 12"), and it only counts here
+ * with a time unit behind it.
+ */
+var mdbTitleRecordingNoteFillers = [
+    /\b\d+(?:[.,]\d+)?\s*(?:h|hr|hrs|hour|hours|min|mins|minute|minutes|std|stunden)\b/gi,
+    /\b(?:full|complete|whole|recording)\b/gi
+];
+
+
+/*
+ * mdbTitleGuestMarkers
+ *
+ * Phrases that mark the guest artist, so the words next to them are a name and not part of
+ * the show. Matched in any case, and read in both directions - a ":" or a "by" behind the
+ * phrase means the guest is named AFTER it, otherwise in FRONT of it:
+ *
+ *     "Hot To The Touch 321 | RAW-ARTES GUEST MIX"
+ *     ->  2026-08-05 - Raw-Artes - Hot To The Touch 321
+ *     "MOLTO IN THE MIX - Guest of the Week: buyArt"
+ *     ->  2026-07-24 - buyArt - Molto In The Mix
+ *
+ * Without this, a bit ending in "Mix" looks like a series of its own and the show and the
+ * artist swap places. The phrase itself is dropped: MixesDB has no "Guest Mix" in a title,
+ * the guest simply IS the artist.
+ */
+/*
+ * "by" says a NAME follows
+ *
+ * The word behind a show name is the artist, with or without a separator in between:
+ *
+ *     "Phono music club podcast by Neryn"  ->  2026-08-10 - Neryn - PHONO Music Club Podcast
+ *     "Some Podcast 12 by Someone"         ->  2026-08-05 - Someone - Some Podcast 12
+ *
+ * Which "by" counts is decided by its CASE, because the word is also an ordinary English one:
+ *
+ * - written lowercase, it is the preposition and a name follows it
+ * - written "BY" inside a bit that is SHOUTED throughout, it is the same word - caps say
+ *   nothing there, everything around it is in caps too
+ * - written "By" inside a bit that is not, it is a word of the NAME ("Stand By Me"), and
+ *   nothing follows it
+ *
+ * Read in six places: mdbTitle_cleanArtist drops it off the front of what is left over
+ * ("... podcast by Neryn" leaves " by Neryn") and off the END where a cut took the name it
+ * pointed at with it, mdbTitle_takeShowOutOfTitle refuses to BE that cut, rule 5b of
+ * buildMixesdbTitle takes it as the separator between an episode number and the artist behind
+ * it, rule 6a takes it as the MAKER CREDIT the wiki has confirmed (see below), and rule 5c
+ * takes it as the SEPARATOR ITSELF where the uploader typed none:
+ *
+ *     "Guestroom 779 by Sascha Sibler"  (channel "PRIVATEPLACES Mixtapes")
+ *     WRONG: 2022-06-15 - Guestroom 779 by Sascha Sibler - PRIVATEPLACES Mixtapes
+ *     ->     2022-06-15 - Sascha Sibler - Guestroom 779
+ *
+ * Nothing marks the number there - no keyword in front of it, no "#", and the channel name is
+ * nowhere in the title - so 5b never sees an episode and the whole title would go into the
+ * artist slot with the channel behind it. The "by" is the only separator the uploader wrote,
+ * and it also says which side is which: what stands in FRONT of it was made, who stands behind
+ * it made it. That direction is the point of the rule - reading the two by their shape alone
+ * puts "Somewhere 779 by Radio Kid" the wrong way round, because the NAME carries the series
+ * word there.
+ *
+ * The front has to look like a series for this - a number or a series word
+ * (mdbTitleShowSuffixWords). With no separator in the title, nothing else is left to tell the
+ * preposition from the ordinary English word: "Side by Side" and "Live by the Sea" are names,
+ * and splitting one of those invents an artist out of half a phrase.
+ *
+ * ... unless the WIKI says so, which is rule 6a (2026-08-23):
+ *
+ *     "112 - unrushed by ena b."  (channel "u n r u s h")
+ *     WRONG: 2026-07-13 - u n r u s h - 112 Unrushed By Ena b.
+ *     ->     2026-07-13 - Ena b. - Unrushed 112
+ *
+ * "unrushed" carries neither a number nor a series word, so the word test above holds the
+ * "by" for the preposition and the title falls through to 6b, which reads it as a series
+ * naming NOBODY and puts the channel name in front of the lot. But the lookup had answered
+ * about both halves long before: "Ena b." is an artist with 2 mixes, "Unrushed" a podcast
+ * with 111, while the channel name is one MixesDB has never heard of and the title does not
+ * even write. A name the wiki FILES as an artist is who played, and that is the second source
+ * the paragraph above says is missing - so 6a splits where the words could not, and 6b never
+ * gets to claim the title names nobody. The answer settles the spelling too ("Ena b.", not
+ * the "Ena B." the re-caser writes).
+ *
+ * mdbTitle_titleByParts holds the reading and the three fences it shares with the channel's
+ * credit (the case, one name written twice, a maker that reads as a name); 6a holds the four
+ * that let it act - the channel earned nothing from the title and is no known series either,
+ * no "@" is left in it, the wiki knows nothing about the written bit as a whole, and what
+ * stands in front of the "by" is not a name it knows ONLY as an artist.
+ *
+ * ... and none of that is reachable while another rule has already CUT the credit apart
+ * (2026-08-23):
+ *
+ *     "Rhythm Prism by AKA AKA Episode #117"  (channel "WHATS POPPIN by AKA AKA")
+ *     WRONG: 2026-06-16 - Rhythm Prism by - AKA AKA 117
+ *     ->     2026-06-16 - AKA AKA - Rhythm Prism 117
+ *
+ * The channel credits "AKA AKA" as its maker (see below), so that is the channel name every
+ * rule looks for in the title - and it stands there, right behind the title's own "by". Cut out
+ * as "the channel name standing in the title", it left "Rhythm Prism by": a group ending on the
+ * connector that was introducing somebody, an artist category that cannot exist, and no credit
+ * left for 6a to read. mdbTitle_takeShowOutOfTitle therefore holds the name where a maker's "by"
+ * points at it, exactly as it already holds one a joiner follows ("Tonino & Lanka") - the name
+ * being there says WHO PLAYED, it does not make the title a repeat of the channel name.
+ *
+ * Refusing the cut is not the same as never finding the name, and one branch turns on the
+ * difference: 4a reads "the channel is a known artist and the title never names them" and would
+ * have put the whole title in as what they made. mdbTitle_takeShowOutOfTitle hands the fact over
+ * as byCredit for it.
+ *
+ * The number saying the front of the "by" is a series may also stand BEHIND the maker, which is
+ * where mdbTitle_seriesScore cannot see it - it reads the front alone. "AKA AKA Episode #117" is
+ * nobody's name: a number counting episodes counts the editions of what stands in front of the
+ * word, so the chunk split reads it as the second source the score is missing
+ * (mdbTitle_makerTailEpisode, marked numbers only and only ENDING the side). Without it the
+ * title was one chunk, and the wiki was asked about "Rhythm Prism by AKA AKA Episode" - one of
+ * the ten slots spent on a name it cannot hold.
+ */
+var mdbTitleGuestMarkers = [
+    "guest mix",
+    "guestmix",
+    "guest set",
+    "guest podcast",
+    "guest show",
+    "guest of the week"
+];
+
+
+/*
+ * mdbTitleGuestConnectors
+ *
+ * The VERB a host writes between its own name and the guest it booked:
+ *
+ *     "Bassiani invites Victor / Podcast #323"  (channel "BASSIANI")
+ *     WRONG: 2026-08-13 - Bassiani - Podcast 323
+ *     RIGHT: 2026-08-13 - Victor - Bassiani Podcast 323
+ *
+ * mdbTitleGuestMarkers' one-directional sibling: there the phrase NAMES the thing ("guest
+ * mix") and the artist may stand on either side of it, here the word is a verb with a subject
+ * and an object, so the sides are settled - the host in front, the guest behind. Without it
+ * the whole phrase stays one name, the wiki is asked about "Bassiani invites Victor" (which
+ * can only answer empty) and the guest is never asked about at all, while the club - a venue
+ * MixesDB knows - ends up in the artist slot.
+ *
+ * The word is dropped, exactly like a guest marker: the guest simply IS the artist, and what
+ * is left of the title is what names the show.
+ *
+ * The catch, and the reason for the fences below: "<Name> Invites" is also a PARTY and a
+ * SERIES name in its own right, two dozen times over on MixesDB - "Secret Cinema Invites",
+ * "Yax Invites 166", "Input Invites Podcast 1". What tells the two apart is whether a name
+ * follows the word inside the same chunk:
+ *
+ * - "Bassiani invites Victor"                      -> a verb: Victor is the guest
+ * - "... @ Secret Cinema Invites, Catwalk"         -> a separator behind it, so it ends the
+ *                                                     name and the name is the party
+ * - "aeternae - Yax Invites 166"                   -> a NUMBER behind it counts the series'
+ *                                                     editions, so the name is the series
+ * - "SNTS - Input Invites Podcast 1"               -> a series WORD behind it, same answer
+ *
+ * So: whitespace on both sides of the word (no separator may follow it), a name in front of
+ * it inside the same chunk, and behind it a name that is neither a number nor a series word.
+ * Nothing weaker would do - a bare "Invites" ending a chunk is the commoner of the two
+ * readings by far.
+ *
+ * Read in two places, the way "presents" is: mdbTitle_takeGuestConnector() in the parse, and
+ * the chunk split (mdbTitle_traceChunks), so the host and the guest are each a lookup
+ * candidate of their own instead of one glued name the wiki cannot answer about.
+ */
+var mdbTitleGuestConnectors = [
+    "invites"
+];
+
+
+/*
+ * The number is the border between entity and artist
+ *
+ * A player title does not need a separator to be readable. The EPISODE NUMBER marks where
+ * the entity ends, so whatever follows it is the artist, even when only a space stands there:
+ *
+ *     "EG AFTER.188 Matt Hauser"        (channel "EG")
+ *     -> 2026-08-05 - Matt Hauser - EG AFTER.188
+ *     "HATE Podcast 496 Fadi Mohem"     (channel "HATE")
+ *     -> 2026-04-03 - Fadi Mohem - HATE Podcast 496
+ *
+ * The other way round is the same rule: with nothing behind the number, the entity ends the
+ * title and the artist is in front of it ("Planet Melis - Techno Germany Podcast 226").
+ *
+ * This is also what tells a series name from an artist name without knowing either: a word
+ * carrying a number belongs to the entity. "AFTER" is only recognisable as part of the show
+ * because ".188" hangs on it - on its own it would read as the start of the artist name.
+ *
+ * A word may only join the entity this way together with its number. Anything else needs the
+ * curated lists (mdbTitleUsernameConversions, mdbTitleShowSuffixWords), because a bare word next to the
+ * channel name is far more often the artist.
+ */
+
+
+/*
+ * "#" marks the episode number, never a part of the name
+ *
+ * A "#" in front of digits says outright what a bare number leaves open: these digits COUNT
+ * an episode. No podcast writes a "#NN" into its own name, so the number is the border of the
+ * rule above even when nothing else marks it - what stands in front is the series, what
+ * stands behind the number is the artist, separator or not:
+ *
+ *     "Multisexual Mix #39 Vaahzer"   (channel "MULTISEX")
+ *     ->  2026-08-14 - Vaahzer - Multisexual Mix 39
+ *     "Familycast #048 - Zitrophren"  (channel "Techno ist Familiensache")
+ *     ->  2026-08-06 - Zitrophren - Familycast 048
+ *
+ * The second one has no episode keyword at all - the "cast" is glued into the name where no
+ * word list sees it - and the "#" alone is what reads it. Without a "#", a name standing
+ * right behind the number still needs a separator or a "by" in front of it ("HATE Podcast
+ * 496 Fadi Mohem" has the channel name to say where the entity ends): behind an unmarked
+ * number a word is far more often part of the name ("Deep House Mix 2 Hours") than an
+ * artist glued on.
+ *
+ * The same "#" is also what settles a title against an "@". No PLACE is on episode 217, so a
+ * title writing both says two things that cannot both be written - the "@" that the set was
+ * PLAYED somewhere, the "#217" that the name behind it is a SERIES:
+ *
+ *     "Colossio @ Melodic Therapy #217 - Mexico"  (channel "CONNECT")
+ *     WRONG: 2026 - Mexico - Colossio @ Melodic Therapy 217
+ *     RIGHT: 2026 - Colossio - Melodic Therapy 217
+ *     and offered next to it: 2026 - Colossio @ Melodic Therapy 217, Mexico
+ *
+ * The SERIES is written, because it is the half that can be checked: a show numbers its
+ * episodes, a place does not, and an "@" is everyday shorthand for "guest on" as readily as it
+ * is the joiner. Neither half of the title is thrown away, though:
+ *
+ * - the DATE stays a live recording's, the year alone. If the set really was played at that
+ *   show, the upload date is not the day it was played - see "The date of a live recording".
+ * - the live reading is OFFERED as a "Switch title" chip, with the country back behind the
+ *   place, where a live title carries it. The page files under the same name either way.
+ *
+ * What the wrong reading cost is worth naming, because it is the worst shape a title can come
+ * out in: with the show read as the venue, the country was the only chunk left over for the
+ * ARTIST slot, so "Mexico" was filed as the artist while Colossio stood right there in front of
+ * the "@". A country is never a name where the title offers one - see mdbTitleCountries.
+ *
+ * Only the "#" spelling does this: a bare number behind a name is a venue's own as readily as
+ * an episode ("@ Club 69"). A tail naming an EVENT keeps its "@" whatever it counts, since an
+ * event numbering its editions is still the place the set was played at, and a title OPENING on
+ * the "@" keeps it too - there the channel is who played, and no artist stands in front to be
+ * cut loose from. mdbTitle_atEpisodeSeparator in title_builder.js, next to the same rule for a
+ * date ("Ingo Sanger @ August 2026"), which is the older and simpler half of it: a date is
+ * never a place, while a series and a place are two readings of one name.
+ */
+
+
+/*
+ * The channel presenting a series
+ *
+ * "pres." behind the channel's own name introduces what the channel PRESENTS, and what
+ * follows it decides which side is the artist:
+ *
+ *     "Lilly Palmer pres. Spannung Radio Show #069"           (channel "Lilly Palmer")
+ *     ->  2026-08-14 - Lilly Palmer - Spannung Radio 069
+ *     "Mat.Theo present UNCODED BIRTHDAY Radioshow (JUNE 26)" (channel "Mat.Theo")
+ *     ->  2026-06-23 - Mat.Theo - Uncoded Birthday Radioshow
+ *     "fabric presents Bonobo"                                (channel "fabric")
+ *     ->  2026-04-03 - Bonobo - fabric
+ *
+ * A SERIES behind the "pres." is the channel's own show, so the channel is the artist and
+ * the series the entity - the words keep the order they stand in, nothing is moved around
+ * the number. A bare NAME behind it is a guest, so the channel is the presenter (the entity)
+ * and the name the artist. What tells the two apart is the series saying it IS one: an
+ * episode number (only a series is presented episode by episode), or a series word off
+ * mdbTitleShowSuffixWords - a guest is a bare name, and nobody is called "... Radioshow".
+ * Digits alone are NOT the word's equal there: "X presents Bonobo 2026" still reads as a
+ * guest.
+ *
+ * The keyword that carried the number goes with it - "Radio Show #069" comes out as
+ * "Radio 069", because the word stood there to introduce the number and the name in front of
+ * it is what the show is called. Unless the WIKI knows the name the word is part of, which is
+ * the one answer that outranks any reading of the shape (mdbTitle_episodeWordKept):
+ *
+ *     "AKA AKA pres. Rhythm Prism Radio #053"  (channel "WHATS POPPIN by AKA AKA")
+ *     ->  2025-03-06 - AKA AKA - Rhythm Prism Radio 053
+ *
+ * "Rhythm Prism Radio" is a podcast with 123 mixes there, so its "Radio" is part of the name
+ * and the cut left a "Rhythm Prism" MixesDB does not have. The default stays the drop, since
+ * that is what the reported "Spannung Radio Show" case came out as with nothing known - the
+ * wiki only ever overrules it where it has an answer. A word that merely COUNTS
+ * (mdbTitleCounterWords) is never part of a name whatever the wiki says, which is the same
+ * call the numbered-pair branch (4c) makes with the same words: there the default is the other
+ * way round - the word STAYS unless it only counts - because the show name is the numbered bit
+ * itself ("Drumcomplexed Radio Show 311") and nothing introduced it.
+ * A monthly-edition stamp behind the series name ("(JUNE 26)")
+ * dates the edition the way the number counts one and goes the same way - the date group
+ * already carries when the mix is from, and a date belongs in no category name.
+ *
+ * "presents"/"pres." is also a SEPARATOR to the chunk split (mdbTitle_traceChunks): the
+ * presenter and what they present are never one name, so each side is a unit and a lookup
+ * candidate of its own - "Mat.Theo" and "UNCODED BIRTHDAY Radioshow" are asked about
+ * separately, never as one glued name.
+ */
+
+
+/*
+ * A channel naming SEVERAL names
+ *
+ * An account is regularly named after the artist AND the person behind it, separated the way a
+ * title separates anything:
+ *
+ *     "LONE SAXON_AUGUST 26_MIX"  (channel "Lone Saxon / Nick J. Smith")
+ *     ->  2026-08-07 - Lone Saxon - August 26 Mix
+ *
+ * That is not one name and can never be used as one: a "/" with blanks around it reads as a
+ * group separator wherever it stands, so the channel on its own makes the title four groups
+ * and gets flattened - which is what the report above came out as ("- Lone Saxon Nick J.
+ * Smith").
+ *
+ * So the names are taken apart and exactly ONE is used: the one the TITLE names, and the FIRST
+ * one when the title names none of them - an account leads with the name it puts mixes out
+ * under. Only a slash or a pipe with whitespace on BOTH sides splits, the same rule the
+ * tracklist detector holds a slash to - without the blanks it sits inside names and addresses
+ * all the time ("AC/DC"). An "&" or a "," never splits one: a duo is one act with one name.
+ *
+ * A trailing BRACKET listing names is taken apart the same way:
+ *
+ *     "True Techno 111 - Pan-Pot"  (channel "True Underground (ONE / True Techno Podcast)")
+ *     WRONG: 2026-09-03 - True Techno 111 Pan-Pot - True Underground
+ *     RIGHT: 2026-09-03 - Pan-Pot - True Techno Podcast 111
+ *
+ * Split on the slash alone that channel name is "True Underground (ONE" and "True Techno
+ * Podcast)" - two fragments nobody wrote, and the second one does damage: mdbTitle_normalizeCompare
+ * drops the stray bracket, so the wiki's "no category of this name" about the fragment was
+ * cached as the answer about Category:True Techno Podcast, the category these episodes are
+ * really filed under. Everything downstream then saw a hole where the podcast stands - the
+ * channel-URL round included, which dropped it as a category MixesDB gives no type.
+ *
+ * Only a bracket with the separator INSIDE it is opened: "DJ Name (Official)" is one name with
+ * a note behind it, and taking that apart would spend a lookup on "Official". A name out of the
+ * bracket has to be four characters long to count - "ONE" would otherwise be picked as the
+ * channel's name by any title carrying the word "one".
+ *
+ * A channel in mdbTitleUsernameConversions is never split - that name is curated, and whatever
+ * stands in it stands there on purpose.
+ */
+
+
+/*
+ * A channel name crediting its MAKER
+ *
+ * A show account is regularly named after the show AND the person running it, joined by the
+ * same "by" a title uses for the same thing:
+ *
+ *     "AKA AKA pres. Rhythm Prism Radio #053"  (channel "WHATS POPPIN by AKA AKA")
+ *     WRONG: 2025-03-06 - WHATS POPPIN by AKA AKA - AKA AKA pres. Rhythm Prism Radio 053
+ *     RIGHT: 2025-03-06 - AKA AKA - Rhythm Prism Radio 053
+ *
+ * Read as ONE name it is a name MixesDB files nothing under and the wiki can only answer empty
+ * about, while both halves are categories it knows - the maker with 230 mixes, the show the
+ * title names with 123. And it blocks every rule that looks for the channel IN the title:
+ * "AKA AKA" opens that title, but "WHATS POPPIN by AKA AKA" does not stand in it, so the
+ * "pres." behind the channel name was never read as the separator it is (see "The channel
+ * presenting a series" below) and the whole title went into the entity slot.
+ *
+ * Same word, same direction and the same case fence as the title's own rule (see ""by" says a
+ * NAME follows" above): what stands in FRONT of it was made - the show - and who stands behind
+ * it made it - the maker. Which is why these are NOT the equal names a "/" lists: the maker is
+ * the name the account puts its mixes out under, so the maker LEADS - that is the name the
+ * title-names-neither fallback picks - and the two are asked about in the roles their sides
+ * give them, the maker as an artist and the show as an entity.
+ *
+ * Four fences hold it, because a lowercase "by" is an ordinary English preposition as well and
+ * a channel name carries no separator to tell the two apart the way a title does:
+ *
+ * - the CASE fence of the title's rule, unchanged: a "By" inside a name that is not shouted
+ *   throughout is a word of that name ("Stand By Me")
+ * - the whole channel name STANDING in the title (mdbTitle_namesTheChannel): the title and the
+ *   account spelling it the same way are two sources saying it is one name, and a channel
+ *   really called "Death by Audio" writes it out in full
+ * - the two halves being one name written TWICE - "Side by Side", "Step by Step", "Bit by Bit":
+ *   the reduplication that makes up most of the English phrases built on the word
+ * - a maker that reads as a name at all: never a bare number and never a series
+ *   (mdbTitle_guestIsName, the same test the guest connectors make), and never opening on a
+ *   LOWERCASE word no name opens on (mdbTitleNonNameLeadWords - "Live by the Sea"). Lowercase,
+ *   because that is the only thing separating the article of a phrase from the one a name is
+ *   built with: "The Martinez Brothers" keeps its capital and is a name.
+ *
+ * A channel in mdbTitleUsernameConversions is never split, exactly as above - that name is
+ * curated, and whatever stands in it stands there on purpose.
+ *
+ * Once split, the maker is a name that turns up in the titles as well - and there it is the
+ * ARTIST, never the show, whatever the account is called:
+ *
+ *     "Rhythm Prism by AKA AKA Episode #117"  ->  2026-06-16 - AKA AKA - Rhythm Prism 117
+ *
+ * The title credits the same person the channel name does, so the rules that look for the
+ * channel IN the title find them - and reading that as "the title names its show" puts the
+ * maker into the entity slot and whatever is left of the credit into the artist. See the
+ * paragraph on the cut in ""by" says a NAME follows" above for the guard.
+ */
+var mdbTitleNonNameLeadWords = [
+    "the", "a", "an", "my", "our", "your", "his", "her", "their", "its",
+    "this", "that", "these", "those", "all", "every", "any", "no",
+    "of", "for", "at", "in", "on", "with", "from"
+];
+
+
+/*
+ * Which spelling of the channel name to use
+ *
+ * The channel name is normally the better source: it is the brand's own account name, which
+ * is why "Trommel.251" on the channel "trommel" comes out as "trommel.251" and not
+ * "Trommel.251". Lowercase branding is a real style and is kept.
+ *
+ * The one exception is a channel name in ALL CAPS. Caps are a typing habit, exactly as in a
+ * shouted title, so they say nothing about how the name is spelled - if the title spells it
+ * differently, the title wins:
+ *
+ *     channel "DIRTYBIRD" + "Dirtybird Radio 540 - Mitch Dodge"
+ *     ->  2026-08-07 - Mitch Dodge - Dirtybird Radio 540
+ *
+ * A channel whose title spells it the same way is unaffected, which is why "SEVEN Mix 084"
+ * and "HATE Podcast 496" keep their caps.
+ *
+ * The mirror of that rule is what keeps the channel's spelling out of Normal Case: a bit of the
+ * title spelling the channel name EXACTLY the way the channel does is two independent sources
+ * agreeing on it, so it is the real spelling and mdbTitle_toNormalCase leaves it alone:
+ *
+ *     "[selected] podcast 064 w/ STRAUSS."  (channel "[selected]")
+ *     ->  "(selected) Podcast 064", never "(Selected) Podcast 064"
+ *
+ * Exact case, nothing looser. A title writing "Yoyaku" for the channel "yoyaku" confirms
+ * nothing - it is one of the two spellings, not both - and there the ordinary rules decide,
+ * which is what keeps "Yoyaku Instore Sessions" out of this.
+ *
+ * And the name has to STAND in the title, not merely be a substring of a longer word
+ * (mdbTitle_standsAlone). The channel "Drumcomplex" is the first eleven characters of
+ * "Drumcomplexed Radio Show", and leaving "Drumcomplex" standing there split the word apart -
+ * the leftover "ed" was then re-cased as a word of its own into "DrumcomplexEd Radio Show", a
+ * name nobody wrote and no category the wiki can answer about (reported 2026-08-19). Two
+ * sources agreeing is the whole point of the rule, and half a word agrees with nothing.
+ */
+
+
+/*
+ * mdbTitleShowSuffixWords
+ *
+ * Words that turn a bare channel name into the show name MixesDB uses, when the player
+ * title spells it out. The channel name alone is not the entity if the title says otherwise:
+ *
+ *     channel "HATE"  + "HATE Podcast 496 - Fadi Mohem"  ->  entity "HATE Podcast", no. 496
+ *     channel "SEVEN" + "SEVEN Mix 084 - Theo Scuera"    ->  entity "SEVEN Mix", no. 084
+ *
+ * "SEVEN Mix" is what the second one is about: the word in front of the number belongs to the
+ * entity, it is never split off into a group of its own ("SEVEN - Mix 084 - Theo Scuera"),
+ * and what is left over after it is the artist.
+ *
+ * Only used for channels WITHOUT an entry in mdbTitleUsernameConversions - a mapped name is the
+ * curated one and must not be extended behind the editor's back.
+ *
+ * The same word read from the OTHER side is what a title leaves out. A show whose name MixesDB
+ * ends on one of these words is written in the title without it, the episode number standing
+ * where the word does:
+ *
+ *     "True Techno 111 - Pan-Pot"  (the channel is filed under "True Techno Podcast")
+ *     WRONG: 2026-09-03 - True Techno 111 Pan-Pot - True Techno Podcast
+ *     RIGHT: 2026-09-03 - Pan-Pot - True Techno Podcast 111
+ *
+ * With the show nowhere in the title, nothing takes the title apart: the whole of it becomes
+ * the artist, and its two halves are glued into one name that is nobody. So the name is looked
+ * for short as well (mdbTitle_showWithoutSuffixWord), and what is found that way is still the
+ * FULL name in the suggestion - the uploader leaving the word out does not rename the category.
+ * The base has to be a name of its own for it: four characters at least, and no series word
+ * left in it, or "Radio Show" would go looking for "Radio" in every title.
+ *
+ * The same words are what carries an episode NUMBER wherever they stand, so mdbTitle_episodeWords()
+ * is built out of this list and mdbTitleCounterWords rather than repeating them. Adding a word
+ * here therefore also teaches the parser to read the number behind it, which is what settles
+ * where the entity ends and the artist begins:
+ *
+ *     "Whose These Cast #02 by Mar Monzon"  (channel "Whose These Records")
+ *     WRONG: 2026-07-30 - Whose These Records - Whose These Cast 02 by Mar Monzon
+ *     RIGHT: 2026-07-30 - Mar Monzon - Whose These Cast 02
+ *
+ * "Cast" carries the number, so "Whose These Cast" is the podcast and the "by" behind the number
+ * introduces the artist. The channel name says the same thing from the other side - a label
+ * ("Records") is what a podcast is named after, not who played the mix - but it is not needed
+ * for the reading and nothing here relies on it.
+ *
+ * A SEPARATOR between the word and its number changes nothing about that. The two belong
+ * together however the uploader punctuated them:
+ *
+ *     "IA Podcast | 233: Fixeer & Ricardo Garduno"  (channel "Illegal Alien Records")
+ *     WRONG: 2026-03-05 - IA Podcast 233: Fixeer & Ricardo Garduno
+ *     RIGHT: 2026-03-05 - Fixeer & Ricardo Garduno - IA Podcast 233
+ *
+ * Read as three bits the title has a show, a number and an artist and no way of telling which
+ * is which, so all three end up in the artist and the entity is lost. Reading the number as the
+ * episode of the word in front of it puts the title back into its two halves.
+ *
+ * The one thing never taken that way is a YEAR: "Some Show | 2026" numbers no episode, and an
+ * invented episode number is worse than a missing one. A year GLUED to the word still is one
+ * ("Vol. 2026"), because there the uploader wrote the two as one thing.
+ *
+ * A word off this list that is left standing ALONE is dropped, not kept. It names a show only
+ * together with a name, so once that name is gone there is nothing left of it:
+ *
+ *     "Nocturna #038 // Max Hefele [Melodic Deep Series]"  (channel "Melodic Deep")
+ *     WRONG: 2026-08-07 - Max Hefele Series - Nocturna 038
+ *     RIGHT: 2026-08-07 - Max Hefele - Nocturna 038
+ *
+ * The uploader signed the last chunk with the channel name plus the word saying what the channel
+ * is, and cutting the channel out of a chunk it signed is right - a channel signing its own title
+ * says nothing about who played. What it leaves behind is a chunk reading "Series", which is no
+ * artist and no show: it glued itself onto the artist and made a name MixesDB has no category of.
+ * See mdbTitle_dropCutLeftoverBit. A NUMBER behind the word is the other case and stays - there
+ * the chunk counts an episode that still has to be named with the channel ("Podcast #323").
+ */
+var mdbTitleShowSuffixWords = [
+    "podcast", "radio", "radioshow", "show", "mixshow", "mix", "mixtape", "mixseries",
+    "series", "sessions", "session", "cast", "fm",
+    // a label's series carries the label's name: "MNMT Recordings" is a series, no artist
+    "recordings"
+];
+
+
+/*
+ * mdbTitleCounterWords
+ *
+ * Words that only COUNT an episode and are no part of the show's name, so they drop out of the
+ * entity once the number is taken off the title:
+ *
+ *     "Joe T Vannelli - Slave To The Rhythm Episode 72"
+ *     ->  2026-08-05 - Joe T Vannelli - Slave To The Rhythm 72
+ *         and NOT "... - Slave To The Rhythm Episode 72"
+ *
+ * The words deliberately NOT listed are the ones a series takes into its own name, which is why
+ * "Truancy Volume 300: Sunju Hargun" keeps its "Volume" and comes out as "Truancy Volume 300",
+ * and "Festival Mix 12 - Some DJ" keeps its "Mix". Nothing in a title tells the two apart - it
+ * is how the series is written on MixesDB, so this is a curated list and can only be one.
+ *
+ * EVERY rule that cuts an episode number out of a title has to ask this list, not just the one
+ * reading "<show> <word> <number> - <artist>". The rule for a number standing in a different
+ * bit than the channel name cut its whole match away and took the word with it:
+ * "Drumcomplexed Radio Show 311 | Drumcomplex" came out as "Drumcomplexed Radio 311" while
+ * Category:Drumcomplexed Radio Show is the one holding the 311 mixes (reported 2026-08-19).
+ */
+var mdbTitleCounterWords = [
+    "episode", "ep", "no", "nr", "nos", "part", "pt", "chapter", "folge"
+];
+
+
+/*
+ * mdbTitleStaticNamePatterns
+ *
+ * Names that are never sent to the category lookup, because they are the same on every mix
+ * ever uploaded: a chunk that is nothing but a counting word - "Episode", "Episode 72",
+ * "Part 2", "Part2", "Pt. 3" - names no artist, no show and no venue. It says WHICH episode
+ * or which part this is, and MixesDB files nothing under it, so the wiki can only ever answer
+ * empty. The 10-names-per-request limit is real, and the slot such a name takes is one a name
+ * that can answer does not get.
+ *
+ * Patterns rather than words, like mdbTitleDroppedBitPatterns: each entry carries its own
+ * number and its own spellings ("Part 2", "Part2", "Pt.2"), which a word list plus one shared
+ * number rule cannot - "Pt" counts only with the "Part" it is short for, never on its own.
+ *
+ * Matched against the WHOLE name (mdbTitle_isStaticName in title_builder.js), anchored on both
+ * ends, so a pattern can never eat part of a real one: "Part 2" is static, "Truancy Volume
+ * 300", "Radio Episode Berlin" and "Party" are asked about as usual.
+ *
+ * Not the same list as mdbTitleCounterWords above, although the words overlap. There the word
+ * is taken OFF a name that has more to it ("Slave To The Rhythm Episode 72" -> "Slave To The
+ * Rhythm 72"); here the word IS the whole name, and what is left after taking it off is
+ * nothing. A word only belongs here when a category of that name would be meaningless - never
+ * one a series is named after ("Podcast", "Mix"), which is a real category on MixesDB hundreds
+ * of times over.
+ */
+var mdbTitleStaticNamePatterns = [
+    /^episode[\s.#:-]*\d*$/i,
+    /^(?:part|pt)[\s.#:-]*\d*$/i
+];
+
+
+/*
+ * A numbered series is the ENTITY, never the artist
+ *
+ * A series numbers its episodes and a person does not number themselves, so a title that is
+ * nothing but a name with a number on it names no artist at all:
+ *
+ *     "Mixing-Diaries 041"          on the channel "LX-F"    ->  2026-08-08 - LX-F - Mixing-Diaries 041
+ *     "From Paris With Hope Vol.14" on the channel "ZÆINO"   ->  2026-08-02 - ZÆINO - From Paris ...
+ *
+ * The channel is then the one who played it. Read off the order alone this comes out backwards,
+ * with the series as the artist and the person as the show ("Mixing-Diaries 041 - LX-F").
+ *
+ * Two things have to hold before the channel is promoted like that, because it overrides the
+ * usual reading of a title completely:
+ *
+ * - the channel name is NOT in the title. If it were, 4b/5b already know what it is.
+ * - the channel does not look like a series ITSELF - no number, no word from mdbTitleShowSuffixWords.
+ *   A channel called "Some Podcast" is the show whatever the title looks like, and promoting it
+ *   to artist would only swap one wrong reading for another.
+ */
+
+/*
+ * A series dated by month
+ *
+ * A recurring mix stamps its editions with the month instead of a number, and the stamp reads
+ * exactly like the number of the rule above - the title is a series and names nobody, so the
+ * channel is the one who played it. The stamp itself leaves the name: the date group is what
+ * carries when the mix is from, and a channel written "Word Word" in title case is somebody's
+ * NAME more often than not:
+ *
+ *     "E-L-E-C-T-R-O MIx August 2026"  (channel "Dirk Wiertz", uploaded 2026-08-14)
+ *     ->  2026-08-14 - Dirk Wiertz - E-L-E-C-T-R-O MIx
+ *
+ * and the page belongs in Category:Promo Mix, which the "Mix" already says in the name, so
+ * nothing is appended to the title.
+ *
+ * The month and year have to end the title TOGETHER, and a series word (mdbTitleShowSuffixWords)
+ * has to be left standing in front of them - that is what keeps everything else out:
+ * "Berghain July" names no series and stays whole, "Summer 2026 Mix" ends in the word and not
+ * in the stamp, and "House Set August 2026 - Simeon Sarfati" names its artist, so 4b reads it
+ * and the mix's name stays verbatim, month and all. It is also what keeps the stamp out of
+ * "LONE SAXON AUGUST 26 MIX", where the month stands in the MIDDLE of the name: the mix is
+ * called "August 26 Mix" and that is the whole name.
+ *
+ * The YEAR may be written with two digits, which is how an uploader dates a monthly edition
+ * half the time ("August 26" for August 2026). Those same two digits are a DAY just as often
+ * ("August 26" as the 26th), and nothing in the title tells the two apart - so the UPLOAD DATE
+ * does: the digits are read as a year only when they land on the year the mix was uploaded in,
+ * give or take one. "Some Mix August 12" uploaded in 2026 is not the 2012 edition of anything,
+ * so it stays part of the name. A four-digit year says it itself and needs no such check.
+ *
+ * What has to be left in front of the stamp is a NAME, not just the word. Strip the series
+ * words out of "Mix August 2026" and nothing remains - there is no series called "Mix", the
+ * title simply has no name of its own, and the month is all the name there is. That one is
+ * mdbTitleDatedMixWords' business, below.
+ */
+
+
+/*
+ * mdbTitleDatedMixWords
+ *
+ * A title that is a MIX WORD and a date and nothing else: no name, no series, no episode -
+ * somebody's monthly mix, uploaded under what amounts to a file name.
+ *
+ *     "Mix August 2026"     (channel "Christian Laurien")
+ *     ->  2026-08-07 - Christian Laurien - August 2026 Mix
+ *     "DJ Mix August 2026"  ->  ... - August 2026 DJ Mix
+ *
+ * Two things follow, and both are what MixesDB does with such a mix:
+ *
+ * - it is a Promo Mix, which the word in the name already says, so nothing is appended to the
+ *   title and only the category is set
+ * - the word goes BEHIND the month and year, whichever order the uploader typed them in.
+ *   "August 2026 Mix" is how MixesDB writes it: the date is the name, the word says what kind
+ *   of thing it is
+ *
+ * Nothing is dropped here, only moved - which is the difference to the monthly EDITION above.
+ * There a name stands in front of the stamp and the stamp only dates it, so the stamp goes.
+ * Here the stamp is the only name there is, so it stays and the word moves behind it.
+ *
+ * The whole name has to be nothing but the word and the date, which is what keeps every real
+ * name out of it: "House Set August 2026" names a set, "E-L-E-C-T-R-O MIx August 2026" names
+ * a series. Only the words a mix is generically called belong on this list - never one that a
+ * series is named after ("Podcast", "Radio"), since an episode of those is not a promo mix.
+ */
+var mdbTitleDatedMixWords = [
+    "dj mix",
+    "mix"
+];
+
+/*
+ * The episode number belongs to the name it stands NEXT TO
+ *
+ * When the channel name IS in the title and a number is too, which of the two is the series is
+ * not a question about either name - it is a question about where the number sits:
+ *
+ *     "LIMB #9 – Yuka"                          on the channel "LIMB"
+ *     ->  2026-08-07 - Yuka - LIMB 9              the number is in the CHANNEL's bit,
+ *                                                 so the channel is the series
+ *     "The Sound of Rome #147 - Ricky Montana"  on the channel "Ricky Montana"
+ *     ->  2026-08-12 - Ricky Montana - The Sound of Rome 147
+ *                                                 the number is in the OTHER bit, so that bit
+ *                                                 is the series and the channel is the artist
+ *
+ * The two titles have the same shape, the same channel-name-plus-number ingredients and opposite
+ * readings, and nothing but the position of the "#" tells them apart. Read off the order alone
+ * the second comes out inside out, with the series as the artist and the person carrying the
+ * episode number ("The Sound of Rome - Ricky Montana 147").
+ *
+ * The order of the two bits decides nothing - "Ricky Montana - The Sound of Rome #147" is the
+ * same title. Only a title of EXACTLY two bits is read this way: with a third one there is more
+ * than one way to pair a name with the number, which is a guess again.
+ *
+ * Where those two bits are the channel and a numbered series, the artist is the uploader
+ * themselves - and if the series name says "mix"/"volume" (mdbTitlePromoMixImpliedWords), the
+ * page files under Promo Mix rather than under the series:
+ *
+ *     "Thumpa - We Call It Jump Up Jungle Vol 4"  on the channel "Thumpa"
+ *     ->  2026-01-02 - Thumpa - We Call It Jump Up Jungle Vol 4, Category:Promo Mix
+ *
+ * With a THIRD bit the channel is neither of the two ("DEEP & HAZY - Undercurrent #5 -
+ * ALEXANDER BOGDANOV" is the crew's series played by a guest), so nobody there released their
+ * own mix and the filing stays with the series name.
+ */
+
+/*
+ * What MixesDB is asked about every title
+ *
+ * The shape of a player title runs out of answers quickly, and the wiki has the rest. One
+ * API request per track asks whether the channel name and each bit of the title exist as a
+ * Category, and what they are:
+ *
+ *     Category:Daniel Bortz  -> Category:Artist
+ *     Category:Ritter Butzke -> Category:Venue
+ *     Category:Brisboys      -> missing
+ *
+ * Two things follow from that, and neither can be read off a title alone:
+ *
+ * - The CHANNEL is a known artist and the title never names them: then the person is the
+ *   artist and the whole title is what they called it.
+ *       "Vintage Vinyl Session 004" on the channel "Daniel Bortz"
+ *       ->  2026-08-09 - Daniel Bortz - Vintage Vinyl Session 004
+ *   By shape alone this comes out backwards, with the series as the artist.
+ *
+ * - A BIT of the title is a known venue: then this was played there rather than made for a
+ *   feed, so it is an "@", and the bit behind the venue is the city.
+ *       "Tonino & Lanka | Ritter Butzke | Berlin" on the channel "Tonino"
+ *       ->  2026-07-20 - Tonino & Lanka @ Ritter Butzke, Berlin
+ *
+ * The lookup is asynchronous, so the suggestion is built twice: once off the title alone, so
+ * something is on screen at once, and again when the answer arrives. Anything typed into the
+ * input by then is left alone. A failed request costs nothing but the wiki's help.
+ */
+
+
+/*
+ * Live recordings at an event
+ *
+ * A festival title is not built like a podcast title. It lists things, bit by bit, and most of
+ * them are not part of a MixesDB title at all:
+ *
+ *     "Leon Row x Shimon | Landjuweel Festival 2026 | Part 2 | Bon Bon Vivant Stage"
+ *     ->  2026 - Leon Row & Shimon @ Landjuweel Festival
+ *
+ * - the bit naming an event (mdbTitleEventWords) is the VENUE, so it joins the artist with "@" and
+ *   there is no third group - the same shape as "Adriana Lopez @ Monnom Black"
+ * - the first bit that is not the event names the artists
+ * - the YEAR is taken off the event name and used as the date (see below)
+ * - "Part 2", stage names and the like are dropped (mdbTitleDroppedBitPatterns) - they say where in
+ *   a recording or where on a site something was played, which a mix page title does not
+ *
+ * The DATE of a festival gig is the one thing the upload date cannot give: a set played at a
+ * festival is uploaded whenever the recording is ready, days or months later. So when the
+ * title names no day, only the YEAR it does name is claimed - "2026", not "2026-08-07".
+ * A precise date written in the title still wins, and the event's year is then only used to
+ * check it: the two disagreeing means one of them was misread.
+ */
+var mdbTitleEventWords = [
+    "festival", "fest", "open air", "openair", "weekender"
+];
+
+
+/*
+ * mdbTitleEventSlotWords
+ *
+ * An event whose name says nothing about being one
+ *
+ * mdbTitleEventWords reads the word IN the name. Plenty of events carry none - a party series
+ * is called "Rote Dichte", not "Rote Dichte Festival" - and the title then has to say it some
+ * other way:
+ *
+ *     "Bee Lincoln - Rote Dichte 2026 - Obstgarten Closing"  (channel "Bee Lincoln")
+ *     WRONG: 2026-08-18 - Bee Lincoln - Rote Dichte 2026 Obstgarten Closing (Promo Mix)
+ *     RIGHT: 2026 - Bee Lincoln @ Obstgarten Closing, Rote Dichte
+ *
+ * Two hints do it, and only TOGETHER:
+ *
+ * - a bit ending in a bare YEAR is an edition of something that runs once a year, so the
+ *   name in front of the year is that thing
+ * - a bit ending in one of the words below is a SLOT of a party night - the closing set, the
+ *   opening, the peak time. Nobody names a podcast episode after a slot, and a slot only
+ *   exists where something was played
+ *
+ * Alone, neither is enough to turn a title into a live recording. "Summer 2026" is a mix name
+ * as readily as an edition, and a "Closing" can sit inside one ("Summer Closing Mix" - which
+ * is also why the word has to END the bit). Standing next to each other in one title they say
+ * the same thing twice, from two directions, and that is what this reads.
+ *
+ * The place group is written slot first, event last - "@ Obstgarten Closing, Rote Dichte" -
+ * the way MixesDB writes a stage and the festival it stands on ("Dave Huismans at Dark
+ * Skies, Horst Festival"). The page is filed under the EVENT wherever it stands in the group:
+ * a slot word says "this part is not the name", the same way an event word says "this part
+ * is" (mdbTitle_placeGroupEntity).
+ *
+ * Words only, no phrases with a number in them: "Peak Time" is a slot, "Peak Time Techno" is
+ * a genre and keeps the bit as it is, because the word has to be the LAST one.
+ */
+var mdbTitleEventSlotWords = [
+    "closing set", "opening set", "warmup set", "after party", "afterparty",
+    "after hour", "afterhours", "afterhour", "peak time", "peaktime", "warm up", "warmup",
+    "closing", "opening"
+];
+
+
+/*
+ * A room inside a venue is not the venue
+ *
+ * Uploaders name the very corner of the club they played in - the loft, the rooftop, the
+ * garden - and MixesDB files the page under the CLUB:
+ *
+ *     "Live@Elsewhere Loft July"  (channel "alexander:louis", uploaded 2026-07-27)
+ *     WRONG: 2026-07 - alexander:louis @ Elsewhere Loft
+ *     RIGHT: 2026-07 - alexander:louis @ Elsewhere
+ *
+ * "Elsewhere Loft" is no category and never will be, while "Elsewhere" is the venue the wiki
+ * has filed sets under for years. Without the words below the whole name was the only thing
+ * ever asked about, so the one lookup that could have answered was never made and the page
+ * went under a category that does not exist.
+ *
+ * They do exactly two things, both behind the "@", where the title has already said that
+ * these words are the PLACE:
+ *
+ *   - the base name is asked about NEXT TO the full one (mdbTitle_categoryCandidates) - the
+ *     full name stays the first question, the base is the fallback
+ *   - and where the wiki knows the base as a venue or an event WHILE the full name answers
+ *     empty, the word comes off the title (mdbTitle_result)
+ *
+ * Both halves of that condition carry: a venue really called "... Garden" answers for itself
+ * and is left alone, and a base nobody knows is no better than the name the uploader wrote.
+ * From the RIGHT and one word only, like every other reduction the candidates do - shortening
+ * a name from the left invents matches.
+ *
+ * The reading is not lost, it is OFFERED: mdbTitle_result hands the dropped word to the hints
+ * bar as a "Switch title" chip, because MixesDB does write the room where it is worth naming
+ * ("2019-05-24 - Robert Hood @ Elsewhere Rooftop, NYC" - filed under Elsewhere all the same),
+ * and only the uploader knows whether this set was one of those. Both readings file the page
+ * under the venue either way (mdbPageCreator_entityCategory).
+ *
+ * "Club" is deliberately NOT on the list: a venue is named "... Club" far more often than it
+ * has a room called one ("Chapeau Club", "Wire Club"), and the same goes for "Haus", "Studio"
+ * and "Arena". What is here names a room, a floor or a piece of outdoor ground - never the
+ * house itself. "stage" is the festival reading of the same thing, and the one that also
+ * turns up as a chunk of its own, where mdbTitleDroppedBitPatterns drops it.
+ */
+var mdbTitleVenueSpaceWords = [
+    "loft", "rooftop", "roof", "terrace", "terrasse", "garden", "garten", "courtyard",
+    "backyard", "yard", "basement", "cellar", "keller", "hall", "halle", "saal", "room",
+    "floor", "stage", "tent", "lounge", "bar", "patio"
+];
+
+
+
+/*
+ * A chain of names is not a name
+ *
+ * A chunk built out of several names strung together with little words answers empty on every
+ * lookup, however well MixesDB knows the names inside it:
+ *
+ *     "Timboletti im Chapeau Club - 3000Grad Festival 3025 - Rosmarin und Lavendel - Undercover-Ambient"
+ *     WRONG: 2025 - Timboletti - im Chapeau Club 3000Grad Festival Rosmarin und Lavendel Undercover-Ambient (Promo Mix)
+ *     RIGHT: 2025 - Timboletti @ 3000Grad Festival
+ *
+ * "Timboletti im Chapeau Club" is a person and the club they played in, and asking the wiki
+ * about the pair can only answer empty - while "Timboletti", which it does know, was never
+ * asked. So a chunk long enough to be a chain is ALSO asked in pieces, split at the connectors
+ * below (mdbTitle_splitNameChain in title_builder.js). The whole chunk is still asked first:
+ * plenty of real category names carry one of these words, and the pieces are the fallback, not
+ * the replacement.
+ *
+ * mdbTitleNamePlaceConnectors is the subset that says the next name is a PLACE - "im", "bei",
+ * "at". Only those may shorten the name the title ends up carrying, and only inside a title
+ * already read as a set played at an event, where the place is settled by the event and what
+ * follows the connector is a corner of the same site - which such a title drops from every
+ * other chunk too. Everywhere else the split only ever adds lookups: "und" and "and" join two
+ * names as readily as they sit inside one ("Rosmarin und Lavendel"), so nothing may be cut off
+ * at them.
+ *
+ * mdbTitleNameChainConnectors is BUILT from the place list rather than repeating it - a word
+ * that names a place is a chain connector wherever it stands, and a private copy of the list
+ * drifts. Words that already end a chunk on their own are not in here: "w/" and "with"
+ * (mdbTitleExtraArtistConnectors), "x" (mdbTitleTogetherArtistJoiners) and the "&" are read
+ * long before the candidates are built.
+ */
+var mdbTitleNamePlaceConnectors = [
+    "im", "in", "am", "at", "auf", "bei", "on"
+];
+
+var mdbTitleNameChainConnectors = mdbTitleNamePlaceConnectors.concat( [
+    "und", "and", "by"
+] );
+
+
+/*
+ * A credit is not part of the act's name
+ *
+ * "KODE9 FOR MAHARISHI - HYPERDUB 2014-2019 DRIVE-BY" (channel "kodenine", 2019-11-29)
+ *     WRONG: 2019-11-29 - KODE9 For Maharishi - Hyperdub 2014-2019 Drive-By (Promo Mix)
+ *     RIGHT: 2019-11-29 - Kode9 - Hyperdub 2014-2019 Drive-By (Promo Mix)
+ *
+ * "KODE9 for maharishi" says who the mix was MADE FOR - a clothing label - and MixesDB has no
+ * category of that name and never will, while "Kode9" is an artist it knows with 94 mixes. So
+ * the little word ends the act's name the way "im" ends it in front of a club, and the words
+ * behind it are a credit rather than a second name: nothing is offered up as a further artist,
+ * the way "w/" and "&" offer theirs.
+ *
+ * The third connector subset, next to the place words above, and like those one of the two
+ * allowed to SHORTEN a name rather than only add a lookup - under the same two conditions the
+ * room and the line-up fraction are reduced under: the wiki answers nothing about the name the
+ * title writes AND knows the name in front of the word as an ARTIST
+ * (mdbTitle_reduceNameCredit in title_builder.js). Without the second half this would shorten
+ * a name nobody knows into another name nobody knows.
+ *
+ * ARTIST side only. Behind the "@" the same little words connect places, and in the ENTITY
+ * slot the reduction would find somebody else's series far more often than the right one:
+ * this very title carries "Hyperdub 2014-2019 Drive-By" as the mix's own name, and
+ * Category:Hyperdub is the Rinse FM show with 48 episodes - filing a maharishi promo under it
+ * is the kind of mistake an empty answer can never correct.
+ *
+ * "by" is deliberately NOT here although it reads the same way round: it is a chain connector
+ * already, and the series-"by" split reads it earlier still ("Guestroom 779 by Sascha
+ * Sibler"), where the name BEHIND it is the artist rather than the credit.
+ *
+ * A name really built around the word ("Dance For Life") is a reading the uploader may have
+ * meant, so the credit comes back as a "Switch title" chip - unlike the line-up fraction,
+ * which MixesDB writes nowhere.
+ */
+var mdbTitleNameCreditConnectors = [
+    "for", "für", "fuer"
+];
+
+
+/*
+ * mdbTitleJokeYearEvents
+ *
+ * Events that write their edition a THOUSAND years ahead. 3000Grad's parties are "3000Grad
+ * Festival 3025" and "3000Grad Festival 3026" - the joke is the channel's name, and the
+ * uploader means 2025 and 2026:
+ *
+ *     "Ri0D. @ 3000Grad Festival 3025  -RUMMELPLATZ-"  (uploaded 2025-08-12)
+ *     WRONG: 2025 - Ri0D. @ 3000Grad Festival 3025, Rummelplatz
+ *     RIGHT: 2025 - Ri0D. @ 3000Grad Festival
+ *
+ * Nothing about the digits themselves says this - "3025" is no year any rule in the parser
+ * recognises, so without the entry below it rides along inside the event's name, is looked up
+ * as part of it and is what the page ends up filed under. Curated per event for exactly that
+ * reason: only the event itself can say that its year is a joke.
+ *
+ * What the parser does with it is what it does with any gig year (mdbTitle_takeJokeYear in
+ * title_builder.js): the digits leave the title and date the recording, since MixesDB writes
+ * the year in FRONT of a title and never twice. Read very early, before the title is split
+ * into chunks, so the number cannot glue the chunk it stands in to its neighbour.
+ *
+ * "ahead" is how far the joke reaches, and the result has to read as a real year - so a
+ * 3000Grad title that names a plain "2025" is left to the ordinary date rules, and the "3000"
+ * of the event's own name is no candidate at all: it is glued to letters, not a number of its
+ * own.
+ */
+var mdbTitleJokeYearEvents = [
+    { name: "3000Grad", ahead: 1000 }
+];
+
+
+/*
+ * mdbTitleDroppedBitPatterns
+ *
+ * Chunks that never make it into a MixesDB title. Matched against a WHOLE chunk, so they
+ * cannot eat part of a name, and applied to every title rather than only to one read as an
+ * event: what they name - which part of a recording, which stage, which side event - is none
+ * of a mix page title's business wherever it turns up. Bracketed chunks included, since those
+ * are chunks like any other by then:
+ *
+ *     "Anja Schneider - Live at Docklands (Smirnoff Sound Collective Camp)"
+ *     ->  the camp goes, "2016-07-14 - Anja Schneider @ Docklands" stays
+ *
+ * A camp is a festival's own side programme, named after its sponsor as often as not, so it
+ * belongs with the stages rather than with the venue the set was played at.
+ *
+ * Most entries are a WORD for an area rather than the name of one, and a name only earns a
+ * place here when the word behind it is generic enough to stand for the area itself. A
+ * "Rummelplatz" is the fairground corner of a festival site - 3000Grad's sets name it the way
+ * others name a stage ("3000Grad Festival -RUMMELPLATZ-"), and a mix page carries as little of
+ * it as it carries a stage. The reported titles put it in a dash wrap, which is a chunk of its
+ * own by the time this runs (mdbTitle_dashWrapsToSeparators), so it is matched like any other.
+ *
+ * Never applied to the LAST chunk standing: a title made of nothing but these would come out
+ * empty, and something wrong beats nothing.
+ *
+ * NEVER OFFERED BACK. Nothing dropped here may return as a "Switch title" alternative, and
+ * "Part 2" is the one that has to be said out loud, because it looks like the obvious
+ * candidate for one:
+ *
+ *     "Some DJ - Live at Berghain (Part 2)"
+ *     ->  2026 - Some DJ @ Berghain,  and NO "(Part 2)" chip beside it
+ *
+ * The parts of one recording are ONE mix page on MixesDB. The page is created under the
+ * plain title and the parts are handled INSIDE it - the file details list every file, each
+ * gets its own player, and the tracklist carries them as part chapters. So a title with the
+ * marker is not a second reading of this mix; it is the first half of a duplicate, and a
+ * page created that way has to be merged by hand afterwards. Offering it would use the
+ * switch to undo the very rule this list is.
+ *
+ * (Titles like "1996 - Frankie Knuckles - Promo Mix (RA Podcast, RA.1000, Part 2)" do exist
+ * on the wiki. They are pages where the SOURCE is genuinely a separate release, not our case
+ * here, and they are no reason to offer the marker on an ordinary split upload.)
+ *
+ * The same holds for a stage, a floor and a camp, which the wiki does not carry at all - the
+ * part marker is only the one worth a paragraph. What IS offered back is a reading that
+ * leaves the page identical: a room inside a venue (mdbTitleVenueSpaceWords), where both
+ * spellings file under the same category.
+ */
+var mdbTitleDroppedBitPatterns = [
+    /^part\s*\.?\s*\d+$/i,
+    /^pt\s*\.?\s*\d+$/i,
+    /^day\s*\d+$/i,
+    /\bstage$/i,
+    /\bfloor$/i,
+    /\bcamp$/i,
+    /\brummelplatz$/i
+];
+
+
+/*
+ * mdbTitleCountries
+ *
+ * The countries a player title writes behind an artist to say where they are FROM, with the
+ * acronym forms next to their long ones. What it recognises is a chunk that is a PLACE LIST -
+ * names separated by "," or "/" with a country as the last one:
+ *
+ *     "DJ MIX #679 - Miss Luna ( Ibiza/ Dusseldorf, Germany)"  (channel "Dance TV")
+ *     WRONG: 2026-08-04 - Miss Luna Ibiza/ Dusseldorf, Germany - DJ Mix 679
+ *     RIGHT: 2026-08-04 - Miss Luna - Dance TV DJ Mix 679
+ *
+ * Where the artist is from is none of a mix page title's business, so the chunk goes
+ * (mdbTitle_dropLocationChunks in title_builder.js) - but only from a title that is NOT a
+ * live recording, i.e. carries no "@" once the joiners have run. On a live recording the
+ * places next to the venue are the venue's city and country, which MixesDB DOES write
+ * ("@ Ritter Butzke, Berlin"), so a live title keeps every place it names.
+ *
+ * A country standing ALONE says too little on its own: "Georgia", "France" and "Japan" are
+ * artists and mix names as readily as countries, so a lone one is kept wherever it could BE a
+ * group of the title - "Some Podcast 12 - Georgia" files the page under Georgia. Only that is
+ * matched, which is also what keeps "Techno Germany Podcast 226" safe, where the country stands
+ * inside a name rather than ending a place list.
+ *
+ * It drops on one condition, and the condition is COUNTING: two chunks are left standing
+ * without it. A MixesDB title is made of three groups (see "The three groups" above), so a
+ * country behind an artist AND an entity is a fourth one, and a fourth group is always
+ * something that belongs to another group or to no title at all. Here it is the byline the
+ * bracket writes one line down, only without the bracket:
+ *
+ *     "Colossio @ Melodic Therapy #217 - Mexico"  (channel "CONNECT")
+ *     WRONG: 2026 - Mexico - Colossio @ Melodic Therapy 217
+ *     RIGHT: 2026 - Colossio - Melodic Therapy 217
+ *
+ * That WRONG line is the reason the rule exists: the country was not merely carried along, it
+ * took the ARTIST slot while Colossio stood right there in the title. A country is a name only
+ * where the title offers no other, and never where it would be a group too many.
+ *
+ * In FULL, never as one of the codes below: a code is only ever read as the last part of a
+ * place list, which is what makes it safe to list everyday words like "CAN" and "NO" at all
+ * (see further down). A lone " - US" chunk stays where it stands.
+ *
+ * A BRACKET is the exception to both of those rules (mdbTitle_dropLocationBrackets in
+ * title_builder.js, from the "MNMT Recordings : Adjust (BE) @ S.U.N Festival" report): a
+ * bracket behind a name holding nothing but a country - alone or as a place list - is a
+ * byline about that name, so it goes even when it is a lone code and even on a live title.
+ * The one place it survives is BEHIND the "@", where the places are the venue's city and
+ * country. A bracket OPENING a title is never one: it names what follows it.
+ *
+ * Behind the "@" a country is the PLACE GROUP's own country, and the opposite of dropping
+ * applies (same report): it STAYS in the title - the event branch keeps it as the place's
+ * second part ("@ S.U.N Festival, Hungary"), the way the venue branch keeps its city - but
+ * it is never sent to the category lookup, because a country is never a category and the
+ * 10-name request limit is real.
+ *
+ * Compared with mdbTitle_normalizeCompare(), which folds to a-z0-9 - so case and dots cost
+ * nothing and "U.S.A.", "USA", "usa" are one entry. The dotted spellings are listed anyway:
+ * this list is a register of what a title may write, and a reader checking whether a spelling
+ * is covered should not have to know the compare function to answer it. Countries written in
+ * a non-latin alphabet cannot be matched and do not belong here yet.
+ *
+ * Every country carries its SHORT forms next to the long one - the three-letter code, the
+ * Olympic spelling where uploaders reach for that one instead ("GER", "NED", "SUI", "POR"),
+ * and the two-letter code ("France", "FRA", "FR").
+ *
+ * Some of those codes are everyday English words ("CAN", "NO", "IT", "IN", "US"). They are
+ * safe HERE and would not be safe on a list matched against words of the title: a CODE only
+ * counts as a location as the LAST part of a place list ("Toronto, CAN"), never on its own and
+ * never as the lone country of the rule above, so the word inside a title is never even asked
+ * about. That guard is the reason the list may hold them, and the reason a lone "Georgia" still
+ * comes out as the artist it usually is.
+ *
+ * Two codes are deliberately NOT here. "SA" names Saudi Arabia as much as South Africa, and a
+ * code that names two countries names neither. "ARE" (the UAE's three-letter code) is an
+ * ordinary verb that no uploader writes as a country - "UAE" is the form they use.
+ *
+ * A US STATE that shares a country's code ("Boston, MA" reading as Morocco, "Los Angeles, CA"
+ * as Canada) costs nothing: the chunk is location info either way, so it goes either way. The
+ * list only has to be right about WHETHER a chunk names a place, never about which place.
+ */
+var mdbTitleCountries = [
+    "Argentina", "ARG", "AR",
+    "Australia", "AUS", "AU",
+    "Austria", "AUT", "AT",
+    "Belgium", "BEL", "BE",
+    "Brazil", "BRA", "BR",
+    "Bulgaria", "BGR", "BUL", "BG",
+    "Canada", "CAN", "CA",
+    "Chile", "CHL", "CHI", "CL",
+    "China", "CHN", "CN",
+    "Colombia", "COL", "CO",
+    "Croatia", "HRV", "CRO", "HR",
+    "Czech Republic", "Czechia", "CZE", "CZ",
+    "Denmark", "DNK", "DEN", "DK",
+    "Egypt", "EGY", "EG",
+    "England", "ENG",
+    "Estonia", "EST", "EE",
+    "Finland", "FIN", "FI",
+    "France", "FRA", "FR",
+    "Georgia", "GEO", "GE",
+    "Germany", "DEU", "GER", "DE",
+    "Greece", "GRC", "GRE", "GR",
+    "Hungary", "HUN", "HU",
+    "India", "IND", "IN",
+    "Indonesia", "IDN", "INA", "ID",
+    "Iran", "IRN", "IRI", "IR",
+    "Ireland", "IRL", "IE",
+    "Israel", "ISR", "IL",
+    "Italy", "ITA", "IT",
+    "Japan", "JPN", "JP",
+    "Latvia", "LVA", "LAT", "LV",
+    "Lebanon", "LBN", "LIB", "LB",
+    "Lithuania", "LTU", "LT",
+    "Malta", "MLT", "MT",
+    "Mexico", "MEX", "MX",
+    "Morocco", "MAR", "MA",
+    "Netherlands", "Holland", "NLD", "NED", "NL",
+    "New Zealand", "NZL", "NZ",
+    "Norway", "NOR", "NO",
+    "Peru", "PER", "PE",
+    "Philippines", "PHL", "PHI", "PH",
+    "Poland", "POL", "PL",
+    "Portugal", "PRT", "POR", "PT",
+    "Romania", "ROU", "ROM", "RO",
+    "Russia", "RUS", "RU",
+    "Scotland", "SCO",
+    "Serbia", "SRB", "RS",
+    "Singapore", "SGP", "SIN", "SG",
+    "Slovakia", "SVK", "SK",
+    "Slovenia", "SVN", "SLO", "SI",
+    "South Africa", "ZAF", "RSA",
+    "South Korea", "KOR", "KR",
+    "Spain", "ESP", "ES",
+    "Sweden", "SWE", "SE",
+    "Switzerland", "CHE", "SUI", "CH",
+    "Thailand", "THA", "TH",
+    "Tunisia", "TUN", "TN",
+    "Turkey", "Türkiye", "TUR", "TR",
+    "Ukraine", "UKR", "UA",
+    "United Arab Emirates", "UAE", "U.A.E.", "AE",
+    "United Kingdom", "UK", "U.K.", "GBR", "GB",
+    "United States of America", "United States", "USA", "U.S.A.", "US", "U.S.",
+    "Vietnam", "VNM", "VIE", "VN",
+    "Wales", "WAL"
+];
+
+
+/*
+ * mdbTitleCities
+ *
+ * City names, for the one part of a place group that names nothing to file a page under.
+ * MixesDB writes a live title as "@ Venue, City" and files the page under the VENUE: the city
+ * has no category and is given none, because a city is where thousands of mixes were recorded
+ * and says nothing about any of them.
+ *
+ * Nothing about the words tells "Ritter Butzke" from "Berlin", so until this list only the
+ * wiki could. The city was asked about like every other name, and "no category of this name"
+ * was the answer that kept it out - one of the ten names a request may carry, spent on
+ * something a list of cities knows for free. And the answer only keeps it out where it comes
+ * back at all; where it does not, the parser reads the city as a name:
+ *
+ *     "Ritter Butzke | Berlin | Tonino & Lanka"
+ *     WRONG: 2026 - Berlin @ Ritter Butzke   (the artist is picked by position, and the city
+ *            stands where a name would)
+ *     RIGHT: 2026 - Tonino & Lanka @ Ritter Butzke, Berlin
+ *
+ *     "Colossio @ Berlin"
+ *     WRONG: the page filed under [[Category:Berlin]] - the entity slot is written whether or
+ *            not the wiki has it, which is what gives a new venue its category
+ *     RIGHT: no entity category at all, since the title names no venue
+ *
+ * Read in the PLACE GROUP only, where the title itself has already said these words are a
+ * place: a city is not asked about behind the "@", is never the name the page is filed under,
+ * is never offered as a second category next to the venue, and is not picked as the artist by
+ * position. What it never does is leave the TITLE - the whole difference to mdbTitleCountries,
+ * which drops what it matches. MixesDB WRITES the city, and a title that lost it would be
+ * missing the part Help:Add_a_new_mix_page asks for.
+ *
+ * A city GLUED to the end of a part gets its comma
+ *
+ * An uploader writes the group without the comma as readily as with it, and then the city is
+ * not a part of its own but the last words of one - which is the one shape where the list has
+ * to CHANGE the title rather than only read it (mdbTitle_cityTail, mirrored in the chunk
+ * split so the same words are asked about):
+ *
+ *     "Karotte @ AYLI X OURS Frankfurt"
+ *     WRONG: 2026-08-07 - Karotte @ AYLI X OURS Frankfurt   (and the page filed under
+ *            [[Category:AYLI X OURS Frankfurt]], a category nobody wrote)
+ *     RIGHT: 2026-08-07 - Karotte @ As You Like It X OURS, Frankfurt
+ *
+ * The comma is where MixesDB puts it, so the words all stay - the city only stops being part
+ * of the name in front of it. Behind the "@" only, like everything else this list decides,
+ * and only where something is LEFT in front of it: "@ Frankfurt" is a lone city and goes the
+ * way it always did, into the title and under no category.
+ *
+ * The risk it takes is a venue really called after its city ("Bar Bogota" in Berlin), which
+ * would lose the word off its category - and it is the same risk the list already runs when
+ * such a name stands behind a comma. What keeps it small is that the list carries no everyday
+ * word (see below) and that the longest city name matching wins, so "Frankfurt am Main" is
+ * never cut down to "Main".
+ *
+ * A city NOT on the list still works the old way round, asked of the wiki and kept out by the
+ * answer, so this may be short and may grow one report at a time: a missing city costs a
+ * lookup slot, not a wrong title.
+ *
+ * Nothing stands BEHIND the city
+ *
+ * The city is where a place group ENDS. MixesDB writes it from the specific outwards -
+ * "@ Event, Venue, City" - and the town is the widest name it carries, so a part hung onto the
+ * end is not a place at all. It is the aside an uploader adds about where inside the venue
+ * they played (mdbTitle_dropAfterCity in title_builder.js):
+ *
+ *     "Blake Strange @ Sisyphos, Berlin [Dampfer] - 01.08.26"  (channel "Blake Strange")
+ *     WRONG: 2026-08-01 - Blake Strange @ Sisyphos, Berlin, Dampfer
+ *     RIGHT: 2026-08-01 - Blake Strange @ Sisyphos, Berlin
+ *
+ * "Dampfer" is the boat floor of that club, and the pages MixesDB has of Sisyphos do not name
+ * it. The words go, and the reading is OFFERED back as a "Switch title" chip that writes them
+ * in FRONT of the place - "@ Dampfer, Sisyphos, Berlin", the way a party held at a venue is
+ * written ("@ Utopia, Ritter Butzke, Berlin") - because a floor, a stage or the night's own
+ * name IS worth naming on some pages, and only the uploader knows whether this is one of them.
+ * Same deal as the room word one rule below: the page files under the venue in either reading.
+ *
+ * A COUNTRY is the exception, because it is the one name wider than the town: "@ Watergate,
+ * Berlin, Germany" keeps widening to its end and is left alone. And something has to stand in
+ * FRONT of the city - a group OPENING with one ("@ Berlin, Watergate") is an uploader writing
+ * it backwards, not a tail, and cutting there would throw away the only name in the title.
+ *
+ * And it is not read by the location rules the countries feed - not by mdbTitle_isLocationChunk
+ * and not by the lone-chunk rule of mdbTitle_locationChunkFlags, however alike the two look.
+ * Those DROP what they match, and the counting they drop by ("two chunks left over") cannot
+ * tell the two shapes apart before the wiki has answered:
+ *
+ *     "Tonino & Lanka | Ritter Butzke | Berlin"   the city MixesDB wants in the title
+ *     "Bee Lincoln | Some Show 12 | Berlin"       the city that only says where they are from
+ *
+ * Both are three chunks with a city last, and dropping the first one's would cost the venue
+ * group its ", Berlin". So a city is never dropped, and the price is the second title: with no
+ * other name in it, "Berlin" is read as who played - exactly what a lone country does there,
+ * and the row is editable for it.
+ *
+ * No codes and no acronyms, unlike the countries: "BER" is an airport, and three letters
+ * standing in a title are an artist's initials far more often than a city (see the "KCE" note
+ * further down). "NYC" is the one short form here, because that is how the city is WRITTEN -
+ * "@ Elsewhere Rooftop, NYC" - and not a code somebody looked up.
+ *
+ * Every city carries the spellings a title may write it in on one line: the English name and
+ * the local one ("Munich", "München"), plus the local one stripped of its diacritics, because
+ * mdbTitle_normalizeCompare DROPS a character it cannot fold ("München" -> "mnchen",
+ * "Munchen" -> "munchen"). Those two are not one entry the way "U.S.A." and "USA" are, and
+ * the German "ue"/"oe" spellings are on the big ones for the same reason. A name written in a
+ * non-latin alphabet cannot be matched and does not belong here.
+ *
+ * Cities whose name is an everyday word are deliberately NOT here - "Nice", "Split", "Bath",
+ * "Reading", "Halle", "Cork". They would be matched as a whole part of a place group, and a
+ * wrong hit there files a page under nothing: a venue really called "Split" would lose its
+ * category. The country codes may be everyday words because a code is only ever read as the
+ * LAST part of a place list; a city name has no such guard.
+ *
+ * The panel offers the list behind the "?" of the two steps this list decides - the comma in
+ * front of a glued city, and the cut behind the city. Nothing else it does is a cleanup step:
+ * the city stands in the title whichever way the question is answered, only its comma, what
+ * follows it and its category hang on the list.
+ */
+var mdbTitleCities = [
+    "Aachen",
+    "Aarhus", "Århus",
+    "Abu Dhabi",
+    "Accra",
+    "Adelaide",
+    "Amsterdam",
+    "Ankara",
+    "Antwerp", "Antwerpen",
+    "Athens", "Athina",
+    "Atlanta",
+    "Auckland",
+    "Augsburg",
+    "Austin",
+    "Baku",
+    "Bali",
+    "Bangalore", "Bengaluru",
+    "Bangkok",
+    "Barcelona",
+    "Basel",
+    "Beijing",
+    "Beirut",
+    "Belfast",
+    "Belgrade", "Beograd",
+    "Berlin",
+    "Bern", "Berne",
+    "Bielefeld",
+    "Bilbao",
+    "Birmingham",
+    "Bochum",
+    "Bogota", "Bogotá",
+    "Bologna",
+    "Bonn",
+    "Bordeaux",
+    "Boston",
+    "Bratislava",
+    "Bremen",
+    "Brighton",
+    "Brisbane",
+    "Bristol",
+    "Brno",
+    "Brooklyn",
+    "Brussels", "Bruxelles", "Brussel",
+    "Bucharest", "București", "Bucuresti",
+    "Budapest",
+    "Buenos Aires",
+    "Cairo",
+    "Cape Town",
+    "Cardiff",
+    "Casablanca",
+    "Chemnitz",
+    "Chicago",
+    "Cologne", "Köln", "Koeln", "Koln",
+    "Copenhagen", "København", "Kobenhavn", "Kopenhagen",
+    "Cordoba", "Córdoba",
+    "Dallas",
+    "Darmstadt",
+    "Delhi", "New Delhi",
+    "Denver",
+    "Detroit",
+    "Doha",
+    "Dortmund",
+    "Dresden",
+    "Dubai",
+    "Dublin",
+    "Duisburg",
+    "Dusseldorf", "Düsseldorf", "Duesseldorf",
+    "Durban",
+    "Edinburgh",
+    "Eindhoven",
+    "Erfurt",
+    "Essen",
+    "Florence", "Firenze",
+    "Frankfurt", "Frankfurt am Main",
+    "Freiburg",
+    "Gdansk", "Gdańsk",
+    "Geneva", "Genève", "Geneve", "Genf",
+    "Genoa", "Genova",
+    "Ghent", "Gent",
+    "Glasgow",
+    "Gothenburg", "Göteborg", "Goteborg",
+    "Granada",
+    "Graz",
+    "Grenoble",
+    "Groningen",
+    "Guadalajara",
+    "Hamburg",
+    "Hanoi",
+    "Hanover", "Hannover",
+    "Heidelberg",
+    "Helsinki",
+    "Ho Chi Minh City", "Saigon",
+    "Hong Kong",
+    "Houston",
+    "Ibiza", "Eivissa",
+    "Innsbruck",
+    "Istanbul",
+    "Izmir",
+    "Jakarta",
+    "Jena",
+    "Jerusalem",
+    "Johannesburg",
+    "Karlsruhe",
+    "Kassel",
+    "Kiel",
+    "Krakow", "Kraków", "Cracow",
+    "Kuala Lumpur",
+    "Kyiv", "Kiev",
+    "Kyoto",
+    "Lagos",
+    "Las Vegas",
+    "Lausanne",
+    "Leeds",
+    "Leipzig",
+    "Lille",
+    "Lima",
+    "Lisbon", "Lisboa",
+    "Liverpool",
+    "Ljubljana",
+    "Lodz", "Łódź",
+    "London",
+    "Los Angeles",
+    "Lubeck", "Lübeck", "Luebeck",
+    "Lucerne", "Luzern",
+    "Lviv",
+    "Lyon",
+    "Madrid",
+    "Magdeburg",
+    "Mainz",
+    "Malaga", "Málaga",
+    "Mallorca", "Majorca",
+    "Malmo", "Malmö",
+    "Manchester",
+    "Manila",
+    "Mannheim",
+    "Marrakech", "Marrakesh",
+    "Marseille",
+    "Medellin", "Medellín",
+    "Melbourne",
+    "Mexico City", "Ciudad de Mexico", "Ciudad de México",
+    "Miami",
+    "Milan", "Milano",
+    "Minneapolis",
+    "Minsk",
+    "Montevideo",
+    "Montpellier",
+    "Montreal", "Montréal",
+    "Moscow", "Moskva",
+    "Mumbai",
+    "Munich", "München", "Muenchen", "Munchen",
+    "Münster", "Muenster",
+    "Nairobi",
+    "Nantes",
+    "Naples", "Napoli",
+    "Newcastle",
+    "New Orleans",
+    "New York", "New York City", "NYC",
+    "Nuremberg", "Nürnberg", "Nuernberg",
+    "Odessa", "Odesa",
+    "Osaka",
+    "Oslo",
+    "Ottawa",
+    "Palermo",
+    "Palma",
+    "Paris",
+    "Perth",
+    "Philadelphia",
+    "Portland",
+    "Porto", "Oporto",
+    "Potsdam",
+    "Poznan", "Poznań",
+    "Prague", "Praha", "Prag",
+    "Quito",
+    "Regensburg",
+    "Rennes",
+    "Reykjavik", "Reykjavík",
+    "Riga",
+    "Rimini",
+    "Rio de Janeiro",
+    "Rome", "Roma",
+    "Rostock",
+    "Rotterdam",
+    "Saint Petersburg", "St. Petersburg", "Sankt Petersburg",
+    "Salzburg",
+    "San Diego",
+    "San Francisco",
+    "Santiago",
+    "Sao Paulo", "São Paulo",
+    "Sarajevo",
+    "Seattle",
+    "Seoul",
+    "Seville", "Sevilla",
+    "Shanghai",
+    "Sheffield",
+    "Shenzhen",
+    "Skopje",
+    "Sofia",
+    "Stockholm",
+    "Strasbourg",
+    "Stuttgart",
+    "Sydney",
+    "Taipei",
+    "Tallinn",
+    "Tbilisi",
+    "Tel Aviv",
+    "The Hague", "Den Haag",
+    "Thessaloniki",
+    "Tokyo",
+    "Toronto",
+    "Toulouse",
+    "Tulum",
+    "Tunis",
+    "Turin", "Torino",
+    "Utrecht",
+    "Valencia",
+    "Vancouver",
+    "Venice", "Venezia",
+    "Vienna", "Wien",
+    "Vilnius",
+    "Warsaw", "Warszawa",
+    "Washington DC",
+    "Weimar",
+    "Wellington",
+    "Wiesbaden",
+    "Wroclaw", "Wrocław",
+    "Wuppertal",
+    "Yerevan",
+    "Zagreb",
+    "Zurich", "Zürich", "Zuerich"
+];
+
+
+/*
+ * A qualified category and the city that picks it
+ *
+ * MixesDB tells two places of the same name apart in the CATEGORY title, in brackets - the
+ * lookup already matches such a category for a title that writes the bare name
+ * (mixesdb_api_request.md §5.2), and one name can answer with several of them:
+ *
+ *     "Utopia"           ->  Utopia (Event), Utopia (Las Vegas), Utopia (Turku)
+ *     "As You Like It"   ->  As You Like It (Frankfurt), As You Like It (San Francisco)
+ *
+ * Which one the title means is a question only the REST of the title can answer, and the
+ * place group is where the answer stands: a group naming Frankfurt means the Frankfurt one.
+ * So a qualified answer counts as this title's ONLY where its qualifier is a city or a
+ * country the group itself carries (mdbTitle_qualifiedPlaceMatch):
+ *
+ *     "Karotte @ AYLI X OURS Frankfurt"
+ *     ->  ... @ As You Like It X OURS, Frankfurt   [[Category:As You Like It (Frankfurt)]]
+ *
+ * The bracket is the WIKI's way of spelling a category, never the title's: MixesDB writes
+ * "@ As You Like It, Frankfurt" and files the page under "As You Like It (Frankfurt)". So the
+ * title gets the qualifier stripped off and the category keeps it - the one place where the
+ * two are deliberately spelled differently.
+ *
+ * Without a matching word in the group nothing is picked and the name stands as written. That
+ * is what keeps "Kernel Existence @ Utopia, Ritter Butzke, Berlin" filed under the Utopia the
+ * uploader means: no group word says "Event", "Las Vegas" or "Turku", so all three answers
+ * are the wiki offering ITS Utopia and the page files under the name the title carries -
+ * exactly as it did before this rule existed (mdbPageCreator_placeMatch).
+ *
+ * A type word in the brackets ("(Show)", "(Event)", "(DJ)") can never be a city, so a
+ * disambiguation of that kind is untouched by this and stays the knowledge it always was.
+ */
+
+
+/*
+ * mdbTitleNormalCaseKeepUpper / mdbTitleNormalCaseKeepLower
+ *
+ * MixesDB writes titles in Normal Case, so a bit read out of the title that is SHOUTED in
+ * caps (or typed all in lowercase) is re-cased:
+ *     "NINA ØDB - NO SIGNAL"  ->  "2026-06-14 - Nina ØDB - No Signal (Promo Mix)"
+ * (the artist there is spelled by the channel name, only "NO SIGNAL" came from the title).
+ *
+ * Only bits that are cased UNIFORMLY are touched. Anything mixing upper and lower case is a
+ * deliberate spelling and stays verbatim: "Nina ØDB", "UηκηΘωN", "Hit the Breaks", and so is
+ * "SEVEN Mix 084". One mixture does NOT count as deliberate: a bit that is uniform once its
+ * series words (mdbTitleShowSuffixWords) and its digit tokens are set aside is a SHOUTED name
+ * with a generic word behind it - the word is typed in Normal Case by habit and says nothing
+ * about the name around it:
+ *
+ *     "Mat.Theo present UNCODED BIRTHDAY Radioshow"  ->  "Uncoded Birthday Radioshow"
+ *
+ * The shouted words are re-cased, the series word keeps its typed case - which is also what
+ * keeps "E-L-E-C-T-R-O MIx" whole: the "MIx" is set aside verbatim, and the dash-spelled
+ * name re-cases to itself. "SEVEN Mix 084" still stays: the title spells the channel name
+ * the channel's way, and that guard runs first. Two kinds of word are left alone even inside
+ * a bit that is re-cased:
+ * - words containing digits, which are IDs and not words: "XLR8R700", "808"
+ * - words without a vowel, which cannot be words either, so they are abbreviations and keep
+ *   their caps: "DSS 139" stays "DSS 139", never "Dss 139". That is what covers the acronyms
+ *   not worth listing below one by one.
+ * A bit that is nothing BUT a short word in caps is the fourth kind, and the one no test
+ * inside the word can reach:
+ *
+ *     "KCE — FROM OPEN FREQUENCY 001"  (channel "From UNDRGRND Culture")
+ *     WRONG: 2026-08-13 - Kce - From Open Frequency 001
+ *     RIGHT: 2026-08-13 - KCE - From Open Frequency 001
+ *
+ * "KCE" holds a vowel, is not the channel's initials and is on no list, so every rule above
+ * reads it as a shouted word - and "Kce" is nobody. Three letters standing alone as a whole
+ * bit of the title are an artist's initials or a brand, never a word somebody bothered to
+ * shout. The bit has to be nothing but that one word: the same three letters INSIDE a phrase
+ * are an ordinary word, which is what keeps "MOLTO IN THE MIX" coming out as "Molto In The
+ * Mix" and not as "Molto IN THE MIX".
+ *
+ * - words that spell the CHANNEL's initials, which is the third kind of acronym and the only
+ *   one a vowel does not give away:
+ *       "IA Podcast | 233: Fixeer & Ricardo Garduno"  on the channel "Illegal Alien Records"
+ *       ->  2026-03-05 - Fixeer & Ricardo Garduno - IA Podcast 233,  never "Ia Podcast"
+ *   A label shortening itself in its own podcast name is common enough that listing every such
+ *   channel below would be endless, and the channel name is right there to be asked. A PREFIX
+ *   of the initials counts ("IA" of "IAR"): the "Records" drops out of the podcast name as
+ *   readily as it stays in. Two letters minimum, and only for a word already written in caps -
+ *   otherwise a lowercase title would be shouted INTO an acronym.
+ *
+ * The catch, and why re-casing costs confidence: an artist really spelled in caps ("DJ MARIA.")
+ * reads exactly like a shouted one, so it gets re-cased as well. Nothing in a player title
+ * tells the two apart - the suggestion is editable for that reason.
+ *
+ * mdbTitleNormalCaseKeepUpper: words that stay in caps, i.e. acronyms rather than words.
+ * mdbTitleNormalCaseKeepLower: small words that stay lowercase inside a title, but not as its first
+ *   word. EMPTY on purpose: MixesDB capitalises every word, so "MOLTO IN THE MIX" becomes
+ *   "Molto In The Mix" and not "Molto in the Mix". The mechanism is kept because it is one
+ *   list entry away if a word ever does need to stay down.
+ */
+var mdbTitleNormalCaseKeepUpper = [
+    "DJ", "MC", "NTS", "RA", "BBC", "FM", "AM", "EP", "LP", "VA", "UK", "USA", "EU", "NYC", "ADE"
+];
+
+var mdbTitleNormalCaseKeepLower = [];
+
+
+/*
+ * mdbTitleDefinitionDocs
+ *
+ * What the reasoning panel shows behind the round "?" next to a cleanup step: the list the
+ * step worked off, one short sentence saying what it is for, and the list itself.
+ *
+ * A reporter who sees "Decoration removed" cannot tell whether the words went because a rule
+ * says so or because the parser guessed - and a maintainer reading the report cannot tell
+ * either. The "?" answers both in place: this list, these entries, and the entry that fired is
+ * in there to be pointed at.
+ *
+ * Keys are the variable names above, and the panel prints the key as the heading - so it also
+ * says WHERE to go and fix a wrong entry. Values are read live (the arrays are never
+ * reassigned, only extended), so nothing here can drift out of step with the data.
+ *
+ * A new list in this file needs an entry here as soon as a trace step names it - see the defs
+ * parameter of mdbTitle_traceStep() in title_builder.js. A list no step names needs none: the
+ * panel only ever asks for what a step points at.
+ */
+var mdbTitleDefinitionDocs = {
+    mdbTitleTypoFixes: {
+        what: "Misspellings corrected before any rule reads a word. A typo in an ordinary word costs a letter; a typo in a word the parser reads (\"podcats\") costs the whole title.",
+        data: mdbTitleTypoFixes
+    },
+    mdbTitleNoise: {
+        what: "Decoration a mix page title never carries: free-download tags, premiere and exclusive markers, and the like. Taken out of the title before it is split into chunks.",
+        data: mdbTitleNoise
+    },
+    mdbTitleDroppedBitPatterns: {
+        what: "Chunks that name a piece of a recording or a corner of a festival site - a part, a day, a stage, a camp. The mix page covers the whole recording, so these never join the title.",
+        data: mdbTitleDroppedBitPatterns
+    },
+    mdbTitleNameChainConnectors: {
+        what: "Little words that string several names into one chunk. A chunk long enough to be such a chain is asked about in pieces as well as whole, since the wiki can only answer empty about the pair. The place words among them (\"im\", \"bei\", \"at\") are the only ones that may also shorten the name, and only inside a set played at an event.",
+        data: mdbTitleNameChainConnectors
+    },
+    mdbTitleNameCreditConnectors: {
+        what: "Little words saying the rest of the name is who the mix was made FOR, not part of the act's name (\"KODE9 for maharishi\"). The credit comes off where MixesDB has no category for the whole name and knows the name in front of the word as an artist - and is offered back as a \"Switch title\" chip, since a name can be built around the word (\"Dance For Life\").",
+        data: mdbTitleNameCreditConnectors
+    },
+    mdbTitleJokeYearEvents: {
+        what: "Events that write their edition a thousand years ahead - 3000Grad's \"Festival 3026\" is the 2026 one. The digits date the recording and leave the title, the way any gig year does.",
+        data: mdbTitleJokeYearEvents
+    },
+    mdbTitleUsernameConversions: {
+        what: "Channel name -> the show MixesDB files that channel's uploads under. Hand-written per channel, and the value is the spelling both the title and the category use.",
+        data: mdbTitleUsernameConversions
+    },
+    mdbTitleChannelSeriesConversions: {
+        what: "For a title that names its show only HALF: the channel plus the generic words the title uses (\"DJ Mix\") name the show together. An upload whose title carries none of the words is untouched.",
+        data: mdbTitleChannelSeriesConversions
+    },
+    mdbTitleShowSuffixWords: {
+        what: "Generic words that turn a channel name into the show MixesDB files its uploads under (\"HATE\" + \"Podcast\"). The word carries the episode number wherever it stands, and it names a series only TOGETHER with a name - alone it is no show and no category.",
+        data: mdbTitleShowSuffixWords
+    },
+    mdbTitleNonNameLeadWords: {
+        what: "Little words no NAME opens on. Read on the maker half of a channel name crediting one (\"<show> by <maker>\"), where a lowercase one says the \"by\" is the ordinary preposition and the channel is one name after all (\"Live by the Sea\"). Lowercase only - a capital opens plenty of real names (\"The Martinez Brothers\").",
+        data: mdbTitleNonNameLeadWords
+    },
+    mdbTitleExtraArtistConnectors: {
+        what: "Connectors behind which FURTHER artists stand. What follows one is taken out of the title and joined to the artist group with a comma.",
+        data: mdbTitleExtraArtistConnectors
+    },
+    mdbTitleTogetherArtistJoiners: {
+        what: "Words between two artists who played TOGETHER, rewritten to the \"&\" MixesDB writes.",
+        data: mdbTitleTogetherArtistJoiners
+    },
+    mdbTitleVenueConnectors: {
+        what: "Words in front of a place, rewritten to the \"@\" MixesDB writes.",
+        data: mdbTitleVenueConnectors
+    },
+    mdbTitleLiveAtWords: {
+        what: "Live and DJ-set markers. They say a set was played somewhere, which is what turns the words behind them into a venue - and a marker with no place to point at is dropped.",
+        data: mdbTitleLiveAtWords
+    },
+    mdbTitleGuestMarkers: {
+        what: "Phrases marking a guest mix. The name in front of one is the artist, and the phrase itself is no part of the title.",
+        data: mdbTitleGuestMarkers
+    },
+    mdbTitleGuestConnectors: {
+        what: "Verbs a host writes in front of the guest it booked (\"Bassiani invites Victor\"). The name behind one is the artist, the word itself is no part of the title - but only where a real name follows it inside the same chunk, since \"<Name> Invites\" is a party name as well.",
+        data: mdbTitleGuestConnectors
+    },
+    mdbTitleEventSlotWords: {
+        what: "Slots of a party night. A bit ending in one of these names WHEN a set was played, not what a mix is called - and next to a bit ending in a bare year it turns the title into a live recording at that event.",
+        data: mdbTitleEventSlotWords
+    },
+    mdbTitleVenueSpaceWords: {
+        what: "Words naming a room, a floor or a piece of ground INSIDE a venue - the loft, the rooftop, the garden. Behind the \"@\" the base name is asked about next to the full one, and where the wiki knows the base as a venue or an event while the full name answers empty, the word comes off the title. The reading is offered back as a \"Switch title\" chip, and the page files under the venue either way.",
+        data: mdbTitleVenueSpaceWords
+    },
+    mdbTitleCountries: {
+        what: "Country names and codes, for spotting what only says where an artist is from - which a mix page title never carries. A bracket behind a name goes even when it holds a lone code (\"Adjust (BE)\") and even on a live title, as long as it stands in front of the \"@\"; an unbracketed chunk only goes as a place LIST ending in a country (\"Ibiza/ Dusseldorf, Germany\"), and only on a non-live title, where the same words are not the venue's city and country.",
+        data: mdbTitleCountries
+    },
+    mdbTitleCities: {
+        what: "City names, for the one part of a place group that names nothing to file a page under. The city stays in the title and never becomes a category - and where an uploader glued it onto the place in front of it (\"@ AYLI X OURS Frankfurt\"), it gets the comma MixesDB writes it with. It also CLOSES the group: a part standing behind the city names something inside the place already named (\"@ Sisyphos, Berlin, Dampfer\") and comes off the title, a country excepted. Cities whose name is an everyday word are deliberately missing; a missing one costs a lookup, not a wrong title.",
+        data: mdbTitleCities
+    }
+};

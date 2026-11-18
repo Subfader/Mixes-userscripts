@@ -1,0 +1,3626 @@
+// ==UserScript==
+// @name         SoundCloud
+// @author       User:Martin@MixesDB (Subfader@GitHub)
+// @version      2026.11.18.1
+// @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
+// @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
+// @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
+// @updateURL    https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/SoundCloud/script.user.js
+// @downloadURL  https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/SoundCloud/script.user.js
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/jquery-3.7.1.min.js
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/waitForKeyElements.js
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/global.js?v-SoundCloud_49
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/mixesdb_modal/funcs.js?v-SoundCloud_3
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/tracklist_editor/funcs.js?v-SoundCloud_17
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/toolkit/funcs.js?v-SoundCloud_131
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/title_definitions.js?v_58
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/title_builder.js?v_92
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/tracklist_detector.js?v_15
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/shared/page_creator/page_creator.js?v_132
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/SoundCloud/script.funcs.js?v_60
+// @require      https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/SoundCloud/api_funcs.js?v_6
+// @include      http*soundcloud.com*
+// @icon         https://www.google.com/s2/favicons?sz=64&domain=soundcloud.com
+// @grant        unsafeWindow
+// @grant        GM_xmlhttpRequest
+// @connect      bit.ly
+// @connect      tinyurl.com
+// @connect      t.co
+// @connect      ow.ly
+// @connect      buff.ly
+// @connect      rb.gy
+// @connect      is.gd
+// @connect      cutt.ly
+// @connect      shorturl.at
+// @connect      shorturl.fm
+// @run-at       document-end
+// ==/UserScript==
+
+(function() {
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Load @ressource files with variables
+ * global.js URL needs to be changed manually
+ * Only the declarations live up here: the CSS itself loads in
+ * "Loading CSS" further down, after the frame opt-out, so foreign
+ * frames (widget players etc.) stay untouched
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+var cacheVersion = 185,
+    scriptName = "SoundCloud";
+window.scriptName = scriptName; // toolkit.js reads this global directly
+window.cacheVersion = cacheVersion; // same reason: the @require'd shared files cache-bust their own CSS with it
+logVar( "scriptName", scriptName );
+logVar( "cacheVersion", cacheVersion );
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Debug settings
+ *
+ * All off in the shipped script - flip one to true while working on a feature.
+ * They sit on window because the code reading them lives in the @require'd script.funcs.js,
+ * which cannot see this IIFE's scope (same reason as window.scriptName further down).
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+// MixesDB Page Creator: normally the row is only offered for players that are NOT on MixesDB
+// yet - for a used player there is nothing to create, so it stays hidden and the title it
+// would have built cannot be compared with the page that exists.
+// With this on, the row is shown for used players too, marked "used" and without the "Create"
+// link (which would only start a duplicate page).
+window.mdbPageCreator_showForUsedPlayers = false; // Off despite the beta phase (like on TrackId.net): the big PC block on used players is confusing while the Tracklist Importer is under test
+
+// Track page loading skeleton (new layout): the grey pulsing placeholder that covers the
+// wrapper below the Track header until buttons, toolkit and tracklist box have all arrived -
+// shared with TrackId.net, see mdbSkeleton_* in shared/page_creator/page_creator.js.
+// With this off, the pieces pop in one by one as they used to. The time until everything
+// has loaded is logged the same way in BOTH modes, so they can be compared log against log.
+window.mdbSkeleton_enabled = true;
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * IIFE logging
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "script.user.js IIFE started. location.href: " + location.href );
+
+// Safety net: some users report the script doing nothing with no red console error at all
+// (e.g. Win11+Chrome, "Firefox mobile app PC version" - see CLAUDE.md/support chat history).
+// A require that fails to fetch, or an exception swallowed by a browser/extension, would
+// otherwise leave zero trace. This guarantees at least one log line naming the exact file/line.
+window.addEventListener( "error", function( e ) {
+    log( "UNCAUGHT ERROR: " + e.message + " @ " + e.filename + ":" + e.lineno + ":" + e.colno );
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Frame handling
+ *
+ * Since the ~Aug 2026 redesign SoundCloud no longer renders track pages into the main
+ * document: the whole track page lives in a same-origin iframe (iframe.webiIframe, id
+ * #__WEBI_IFRAME_PRELOADED__) whose path is the address bar path prefixed with "/n/".
+ * Everything we add to a track page has to be added inside that document, so @noframes
+ * had to go - which in turn means the script now also starts in every other
+ * soundcloud.com frame (widget players, upload target, ...) and has to opt out there.
+ *
+ * Stream/profile/playlist pages are unaffected and still render into the top document.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+// The frame is only ours if we can actually reach the embedding page - a soundcloud.com
+// page embedded somewhere else entirely is none of our business either.
+function canAccessTopFrame() {
+    logFunc( "canAccessTopFrame" );
+
+    try {
+        var result = typeof window.top.location.pathname === "string";
+        logVar( "canAccessTopFrame result", result );
+        return result;
+    } catch( e ) {
+        logVar( "canAccessTopFrame result", "false (threw: " + e + ")" );
+        return false;
+    }
+}
+
+logFunc( "Frame handling" );
+logVar( "location.href", location.href );
+logVar( "location.pathname", location.pathname );
+logVar( "window.self === window.top", window.self === window.top );
+
+const isTopFrame = ( window.self === window.top );
+let isWebiFrame = false;
+
+if( !isTopFrame ) {
+    var pathLooksLikeWebiFrame = /^\/n\//.test( location.pathname );
+    logVar( "pathLooksLikeWebiFrame (/^\\/n\\//.test(location.pathname))", pathLooksLikeWebiFrame );
+
+    isWebiFrame = pathLooksLikeWebiFrame && canAccessTopFrame();
+}
+
+logVar( "isTopFrame", isTopFrame );
+logVar( "isWebiFrame", isWebiFrame );
+
+if( !isTopFrame && !isWebiFrame ) {
+    log( "STOPPING: this frame is neither the top frame nor a recognized webi frame - nothing to do here. (" + location.href + ")" );
+    return; // not a frame we have anything to do in
+}
+
+log( "Frame accepted, continuing in " + ( isTopFrame ? "top frame" : "webi frame" ) + "." );
+
+// Inside the webi frame it is the address bar - not location.href - that holds the URL
+// MixesDB works with: the frame's own path carries the "/n/" prefix plus SoundCloud's
+// internal query string. Re-point global.js' urlPath() at the address bar so every
+// urlPath()/urlPath_noParams() call in global.js, toolkit.js and this script keeps
+// seeing /user/track instead of /n/user/track.
+const pageLocation = isWebiFrame ? window.top.location : window.location;
+
+/*
+ * getPageHref
+ * A function, not a const: SoundCloud swaps tracks without ever loading a document (see
+ * onUrlChange() in global.js), so a URL read once at script start names the track the user
+ * opened FIRST and every lookup after the first click would be for the wrong mix.
+ * pageLocation itself is a live Location object and stays correct.
+ */
+function getPageHref() {
+    return pageLocation.protocol + "//" + pageLocation.host + pageLocation.pathname + pageLocation.search;
+}
+
+logVar( "pageLocation source", isWebiFrame ? "window.top.location (address bar)" : "window.location" );
+logVar( "pageHref", getPageHref() );
+
+if( isWebiFrame ) {
+    urlPath = function(n) {
+        return getPageHref().split('/')[n+2];
+    };
+    log( "urlPath() overridden to read from the address bar (webi frame mode)." );
+}
+
+// The OpenGraph/app-link meta tags (needed for the track ID) only exist in the top
+// document - the webi frame ships a near-empty <head>.
+const metaDoc = isWebiFrame ? window.top.document : document;
+logVar( "metaDoc source", isWebiFrame ? "window.top.document" : "document" );
+
+/*
+ * getScPlayerUrl
+ * The player URL as MixesDB embeds it.
+ * DO NOT build it from location.href: that carries parameters, and inside the webi frame
+ * it is not even the URL of this track.
+ * Must work on URLs like https://soundcloud.com/fccr/shigeo-yamaguchi-wm-66-berlin-1996?utm_source=trackid.net&utm_campaign=wtshare&utm_medium=widget&utm_content=https%253A%252F%252Fsoundcloud.com%252Ffccr%252Fshigeo-yamaguchi-wm-66-berlin-1996
+ */
+function getScPlayerUrl() {
+    return pageLocation.protocol + '//' + pageLocation.host + pageLocation.pathname;
+}
+
+// SPA navigation is set up at the very bottom of this file, once everything it has to reset
+// exists - see runSoundcloudPage().
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Constants
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+const xedItemsStorageKey = 'mdb-soundcloud-xed-items',
+      hideXedItemsKey = 'mdb-soundcloud-hide-xed',
+      hidePlaylistsKey = 'mdb-soundcloud-hide-playlists',
+      hideRepostsKey = 'mdb-soundcloud-hide-reposts',
+      hideFavoritesKey = 'mdb-soundcloud-hide-favorites',
+      hideUsedKey = 'mdb-soundcloud-hide-used';
+
+const getXedItems = () => {
+    try {
+        return JSON.parse(localStorage.getItem(xedItemsStorageKey)) || [];
+    } catch (error) {
+        logVar('getXedItems failed', error);
+        return [];
+    }
+};
+
+const saveXedItems = (items) => {
+    localStorage.setItem(xedItemsStorageKey, JSON.stringify(items));
+};
+
+const addXedItem = (slug) => {
+    if (!slug) return;
+
+    const items = getXedItems();
+    if (!items.includes(slug)) {
+        items.push(slug);
+        saveXedItems(items);
+    }
+};
+
+const isXed = (slug) => getXedItems().includes(slug);
+
+const isHideXedEnabled = () => localStorage.getItem(hideXedItemsKey) === 'true';
+
+const setHideXedEnabled = (isEnabled) => {
+    localStorage.setItem(hideXedItemsKey, isEnabled ? 'true' : 'false');
+};
+
+const resolveHideOption = (paramName, storageKey, defaultValue = 'false') => {
+    const paramValue = getURLParameter(paramName);
+
+    if (paramValue === 'true' || paramValue === 'false') {
+        localStorage.setItem(storageKey, paramValue);
+        return paramValue;
+    }
+
+    const storedValue = localStorage.getItem(storageKey);
+    if (storedValue === 'true' || storedValue === 'false') {
+        return storedValue;
+    }
+
+    return defaultValue;
+};
+
+const setHideOption = (storageKey, isEnabled) => {
+    localStorage.setItem(storageKey, isEnabled ? 'true' : 'false');
+};
+
+const getSlugFromSoundItem = (soundItem) => {
+    if (!soundItem || !soundItem.length) return null;
+
+    const link = soundItem.find('.sc-link-primary.soundTitle__title');
+    const href = link.attr('href');
+
+    if (!href) return null;
+
+    return href
+        .replace(/^https?:\/\/(?:www\.)?soundcloud\.com\//, '')
+        .replace(/\?.*$/, '');
+};
+
+const hideIfXed = (soundItem) => {
+    if (isSetsTab() || !isHideXedEnabled()) return;
+
+    const slug = getSlugFromSoundItem(soundItem);
+    if (slug && isXed(slug)) {
+        soundItem.remove();
+    }
+};
+
+// Note: loadRawCss() (in global.js) does not log success/error itself - if styling ever looks
+// broken, check the Network tab for these URLs, since a failed fetch here fails silently.
+// page_creator.css belongs to the shared MixesDB Page Creator (shared/page_creator/) and is
+// loaded by every site script that calls mdbPageCreator_add() - see its header comment.
+logFunc( "Loading CSS" );
+var globalCssUrl = githubPath_raw + "shared/global.css?v-" + scriptName + "_" + cacheVersion,
+    pageCreatorCssUrl = githubPath_raw + "shared/page_creator/page_creator.css?v-" + scriptName + "_" + cacheVersion,
+    scriptCssUrl = githubPath_raw + scriptName + "/script.css?v-" + cacheVersion;
+logVar( "globalCssUrl", globalCssUrl );
+logVar( "pageCreatorCssUrl", pageCreatorCssUrl );
+logVar( "scriptCssUrl", scriptCssUrl );
+loadRawCss( globalCssUrl );
+loadRawCss( pageCreatorCssUrl );
+loadRawCss( scriptCssUrl );
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Basics
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+var scAccessToken;
+
+const fast = 200,
+      soundActionFakeButtonClass = 'sc_button-mdb sc-button-secondary sc-button sc-button-medium mdb-item';
+
+// On set pages show only some filter options and hide list items, not players
+// https://soundcloud.com/jedentageinset/sets/jeden-tag-ein-set-podcasts
+// Functions rather than values, for the same reason as getPageHref() above: SoundCloud goes
+// from a user page to a set and back without loading a document.
+function isSetPage() {
+    return urlPath_noParams(2) == "sets";
+}
+
+function isSetsTab() {
+    return isSetPage() && !urlPath_noParams(3);
+}
+
+// Search results
+// https://soundcloud.com/search?q=vamos%20show and its tabs (/search/go, /search/sounds,
+// /search/people, /search/albums, /search/sets).
+// Functions rather than values for the same reason as isSetPage() above.
+function isSearchPage() {
+    return urlPath_noParams(1) == "search";
+}
+
+// The search tabs that list single tracks - the only ones the filter row means anything on.
+// "people" lists users, which have neither a duration nor a favorites count. "albums"/"sets"
+// list playlists, and those are left out for the same reason the sets tab of a profile shows
+// no filter row: resolving every playlist of the list only creates server load.
+// "" is the default tab ("Everything"), which is what /search?q= lands on.
+const searchTabsWithTracks = [ "", "go", "sounds" ];
+
+function isSearchTabWithTracks() {
+    return isSearchPage() && searchTabsWithTracks.indexOf( urlPath_noParams(2) ) > -1;
+}
+
+// url parameters
+// Read off the URL, so they only describe the page we are on right now - readHideOptions()
+// runs again for every page, see runSoundcloudPage() at the bottom of this file.
+var getHidePl, getHideReposts, getHideFav, getHideUsed, getHideXed;
+
+function readHideOptions() {
+    getHidePl = resolveHideOption("hidePl", hidePlaylistsKey);
+    getHideReposts = resolveHideOption("hideReposts", hideRepostsKey);
+    getHideFav = resolveHideOption("hideFav", hideFavoritesKey);
+    getHideUsed = resolveHideOption("hideUsed", hideUsedKey);
+
+    var getHideXedParam = getURLParameter("hideXed");
+    getHideXed = getHideXedParam == "true" ? "true" : getHideXedParam == "false" ? "false" : ( isHideXedEnabled() ? "true" : "false" );
+
+    setHideXedEnabled(getHideXed === "true");
+
+    // The sets tab only shows an informational placeholder instead of filter
+    // controls, so no persisted hide option may remove its playlist entries.
+    // The same goes for the search tabs that get no bar (people, albums, playlists): the rows
+    // there carry the very markup the hiding handlers look for, and without a checkbox on the
+    // page there would be no way to switch a persisted option off again.
+    if( isSetsTab() || ( isSearchPage() && !isSearchTabWithTracks() ) ) {
+        getHidePl = getHideReposts = getHideFav = getHideUsed = getHideXed = "false";
+    }
+
+    logVar( 'isSetPage (= "'+urlPath_noParams(2)+'")', isSetPage() );
+    logVar( "isSetsTab", isSetsTab() );
+    logVar( "getHidePl", getHidePl );
+    logVar( "getHideReposts", getHideReposts );
+    logVar( "getHideFav", getHideFav );
+    logVar( "getHideUsed", getHideUsed );
+    logVar( "getHideXed", getHideXed );
+}
+
+readHideOptions();
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Track page diagnostics
+ *
+ * Every handler below (Toolkit, Track header, sc-button-group, artwork, ...) is driven
+ * by waitForKeyElements, which - by design - only logs once a watched selector actually
+ * matches. If a browser/layout combination exists where NONE of our selectors ever match
+ * (SoundCloud markup changed further, an extension mangled the DOM, the frame never
+ * finished hydrating, ...), that produces total silence: no error, no "not found" log,
+ * nothing - which is exactly the "userscript ran fine but no MixesDB elements appeared"
+ * reports we cannot currently diagnose from a log alone.
+ *
+ * This takes an unconditional snapshot of which key selectors exist (and are :visible)
+ * in the DOM, at fixed checkpoints, independent of whether any waitForKeyElements
+ * callback ever fires. A user's next log - even if it gets cut off before any handler
+ * result appears - will still show exactly what markup was/wasn't there and when.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+// selector -> which document to check it in ("frame" = this frame's own document, which
+// is the webi iframe's document on new-layout track pages; "meta" = metaDoc, since e.g.
+// al:ios:url only ever exists in the top document even inside the webi frame)
+var trackPageDiagnosticSelectors = [
+    [ 'section[aria-label="Track header" i], section[aria-label="Track-Header" i]', "frame" ], // new layout container (Aug 2026 redesign) - SoundCloud serves "Track header" OR "Track-Header" depending on account/rollout bucket, confirmed via a live cross-check against a reporter's session where only the hyphenated form was present
+    [ '#mdb-sc-trackExtras',                                            "frame" ], // our new-layout wrapper, if already built
+    [ '.l-listen-hero',                                                 "frame" ], // old layout header trigger
+    [ '.l-listen__mainContent .listenDetails__partialInfo',             "frame" ], // old layout toolkit selector A
+    [ '.listen-about .listenDetails',                                    "frame" ], // old layout toolkit selector B
+    [ '.soundActions',                                                  "frame" ],
+    [ '.l-listen-wrapper .soundActions .sc-button-group, .listen-content .soundActions .sc-button-group', "frame" ],
+    [ '.listenArtworkWrapper',                                          "frame" ], // old artwork wrapper
+    [ '.listenInfo .image span.sc-artwork[style*="background-image"]',  "frame" ], // newer artwork wrapper
+    [ 'h1.soundTitle__title',                                           "frame" ],
+    [ 'button[aria-label="Download track"]',                            "frame" ],
+    [ 'meta[property="al:ios:url"]',                                    "meta"  ], // NOT the track ID source any more (it is stale under SPA navigation - see the API call), kept as a signal for whether this document was server-rendered for this track
+    [ 'meta[property="og:title"]',                                      "meta"  ]
+];
+
+function logTrackPageSnapshot( label ) {
+    // Both the top frame and the webi frame run their own copy of this diagnostic (each
+    // sets up its own 'load'/timeout checkpoints), and both log under the same unlabeled
+    // text - without the frame tag, two near-identical "Track page DOM snapshot" blocks
+    // show up back to back and can only be told apart by eyeballing which values are
+    // non-zero. Confirmed against a known-good log: this is expected/harmless there, but
+    // for a broken report it needs to be unambiguous at a glance.
+    logFunc( "Track page DOM snapshot: " + label + " (" + ( isWebiFrame ? "webi frame" : "top frame" ) + ")" );
+    logVar( "document.readyState", document.readyState );
+    logVar( "urlPath(2)", urlPath(2) );
+
+    $.each( trackPageDiagnosticSelectors, function( i, entry ) {
+        var selector = entry[0],
+            docTarget = ( entry[1] === "meta" ) ? metaDoc : document,
+            matches = $( selector, docTarget ),
+            visibleCount = matches.filter(':visible').length;
+
+        log( "  [" + matches.length + " found, " + visibleCount + " visible] " + selector );
+    });
+}
+
+// Reaches directly into the webi iframe's own contentDocument from the TOP frame, i.e.
+// it bakes in the manual "run this snippet in DevTools" check we kept having to ask
+// testers for by hand while chasing a report where the webi frame's OWN script instance
+// reported 0 matches for everything. Only the top frame can do this (it owns the iframe
+// element); running it there means every future log already contains the answer instead
+// of needing a live back-and-forth with whoever can reproduce the bug.
+// If this ever disagrees with the webi frame's own self-reported snapshot above, that
+// points to a bug/race in OUR diagnostic rather than in SoundCloud's markup - currently
+// indistinguishable without this cross-check.
+function logWebiIframeCrossCheck( label ) {
+    if( !isTopFrame ) return; // only the top frame can reach the iframe element itself
+
+    logFunc( "Webi iframe cross-check (from top frame): " + label );
+
+    var iframe = document.getElementById( "__WEBI_IFRAME_PRELOADED__" ) ||
+                 Array.prototype.filter.call( document.querySelectorAll( "iframe" ), function( f ) {
+                     try {
+                         return /^\/n\//.test( new URL( f.src, location.href ).pathname );
+                     } catch( e ) {
+                         return false;
+                     }
+                 })[0];
+
+    if( !iframe ) {
+        log( "No webi iframe (#__WEBI_IFRAME_PRELOADED__ or iframe[src^=\"/n/\"]) found in the top document." );
+        return;
+    }
+
+    logVar( "iframe.src", iframe.src );
+
+    var doc;
+    try {
+        doc = iframe.contentDocument;
+    } catch( e ) {
+        log( "Webi iframe found but reading contentDocument threw (cross-origin?): " + e );
+        return;
+    }
+
+    if( !doc ) {
+        log( "Webi iframe found but contentDocument is null (not yet accessible)." );
+        return;
+    }
+
+    var labels = $( "section[aria-label]", doc ).map(function() { return $(this).attr("aria-label"); }).get();
+    logVar( "section[aria-label] values seen directly inside the webi iframe", JSON.stringify( labels ) );
+    logVar( "#mdb-sc-trackExtras present inside the webi iframe (cross-check)", $("#mdb-sc-trackExtras", doc).length !== 0 );
+}
+
+// Logged-in vs logged-out has repeatedly turned out to matter for reproducing layout
+// bugs, but asking someone what account state they were in after the fact is unreliable.
+// These are matched by href/src PATTERN, not by translated button text (the same trap
+// that made the original "Track header" aria-label investigation take several rounds) -
+// so they hold regardless of the page's locale. Logged as raw signals rather than a
+// single yes/no verdict since we do not have a confirmed ground truth for every account
+// state yet; interpret alongside everything else rather than trusting this in isolation.
+function logAuthSignals( label ) {
+    if( !isTopFrame ) return; // metaDoc central here too, no need to run from both frames
+
+    logFunc( "Auth signals: " + label );
+    logVar( "a[href*=\"/signin\"] count (seen when logged out)", $('a[href*="/signin"]', metaDoc).length );
+    logVar( "iframe[src*=\"web-auth\"] count (prefetched sign-in modal, seen when logged out)", $('iframe[src*="web-auth"]', metaDoc).length );
+}
+
+function runTrackPageDiagnostics( label ) {
+    logTrackPageSnapshot( label );
+    logWebiIframeCrossCheck( label );
+    logAuthSignals( label );
+}
+
+// Only meaningful on an actual track page - urlPath(2) already accounts for the webi
+// frame's urlPath() override (reads the address bar) done further up this file.
+if( urlPath(2) && urlPath(2) != "sets" ) {
+    runTrackPageDiagnostics( "at script start" );
+
+    if( document.readyState !== "complete" ) {
+        window.addEventListener( "load", function() {
+            runTrackPageDiagnostics( "on window 'load' event" );
+        });
+    }
+
+    // React/webi content can keep hydrating well after document-end and 'load' - these
+    // fixed, one-shot checkpoints catch that without logging forever (unlike a
+    // MutationObserver/interval, which would flood the console on every re-render).
+    [ 3000, 8000, 15000 ].forEach(function( delay ) {
+        setTimeout(function() {
+            runTrackPageDiagnostics( delay + "ms after script start" );
+        }, delay );
+    });
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Artwork
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Artwork" );
+
+waitForKeyElements(".listenArtworkWrapper", function( jNode ) {
+    if( urlPath(2) && urlPath(2) != "sets" ) {
+        //log( location.href );
+
+        // Artwork link to original (legacy wrapper)
+        var artworkWrapper = $(".listenArtworkWrapper"),
+            artwork_url = $(".sc-artwork", artworkWrapper).html().replace(/.+&quot;(htt.+(?:jpg|png)).+/, "$1");
+        log( artworkWrapper.html() );
+        logVar( "artwork_url", artwork_url );
+        if( typeof artwork_url  !== "undefined" ) {
+            append_artwork( artwork_url );
+        }
+    }
+});
+
+// Artwork link to original (new listenInfo wrapper)
+waitForKeyElements(".listenInfo .image span.sc-artwork[style*='background-image']", function( jNode ) {
+    if( urlPath(2) && urlPath(2) != "sets" ) {
+        var styleAttr = jNode.attr("style") || "",
+            artwork_url = styleAttr.replace(/.*background-image:\s*url\(["']?(https?:[^"')]+(?:jpg|png))["']?\).*/, "$1");
+
+        logVar( "artwork_url (listenInfo)", artwork_url );
+
+        if( typeof artwork_url !== "undefined" && artwork_url !== styleAttr ) {
+            append_artwork( artwork_url );
+        }
+    }
+});
+
+// Artwork link to original (new Material "Track header" layout, since ~Aug 2026 redesign)
+// is not done from the DOM: the artwork box clips its overflow, so an info bar placed next to
+// the <img> is invisible, and tracks with a "visuals" banner have no artwork <img> in the
+// visible header at all. It is added from the API artwork_url instead, see the API call below.
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Favorite button
+ *
+ * TODO:
+ * Enable in playlists https://soundcloud.com/resident-advisor
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Favorite button" );
+
+// One row of a stream/profile list or of the search results - see listRowSelector
+waitForKeyElements("li.soundList__item .sc-button-like:not(.mdb-processed-favorited), li.searchList__item .sc-button-like:not(.mdb-processed-favorited)", function( jNode ) {
+    // is favorited
+    if( jNode.hasClass("sc-button-selected") ) {
+        var title = jNode.closest(listRowSelector).find(".soundTitle__title");
+        log( "Favorite found: " + title.text() );
+
+        // Highlight player title if favorited
+        title.addClass("mdb-darkorange");
+
+        // Hiding option: remove faved player
+        removeFavedPlayer_ifOptedIn( jNode );
+    }
+
+    // mark as processed
+    jNode.addClass("mdb-processed-favorited");
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Submit the whole set to TrackId.net
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Set submit link" );
+
+// Below the filter row of #mdb-streamActions, i.e. the last of our own controls above the
+// set's track list. That row is built by mountUI() in script.funcs.js, which only runs for
+// !isSetsTab() - exactly the set pages this link is for.
+// Set pages still use the old layout, so no webi frame handling is needed here, but
+// getPageHref() is passed anyway since it is the address bar URL in either frame.
+// https://soundcloud.com/jedentageinset/sets/jeden-tag-ein-set-podcasts
+waitForKeyElements("#mdb-streamActions-filter", function( jNode ) {
+    addTidPlaylistSubmitLink( jNode, "after", getPageHref() );
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Links in playlist sets
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Links in playlist sets" );
+
+// player links and link buttons
+// https://soundcloud.com/resident-advisor/sets/ra-podcast
+waitForKeyElements(".listenDetails__trackList li a.trackItem__trackTitle", playlistSetsCaseOne );
+waitForKeyElements(".systemPlaylistTrackList__list li a.trackItem__trackTitle", playlistSetsCaseOne );
+function playlistSetsCaseOne( jNode ) {
+    var playerUrlFixed = linkRemoveSetParameter( jNode.attr("href") );
+
+    jNode.attr( "href", playerUrlFixed )
+         .attr( "target", "_blank" )
+         .attr( "title", playerUrlFixed+" (opens in a new tab)" );
+
+    // Hiding option: each used player in li.trackList__item
+    if( getHideUsed == "true" ) {
+        logFunc( "Hiding used players in sets" );
+
+        var wrapper = jNode.closest("li.trackList__item"),
+            playerUrl = "soundcloud.com" + jNode.attr("href");
+        //logVar( "trackList__item playerUrl", playerUrl );
+
+        getToolkit( playerUrl, "hide if used", "lazy loading list", wrapper );
+    }
+}
+
+// Compact playlists
+// https://soundcloud.com/resident-advisor
+waitForKeyElements(".compactTrackList__listWrapper li.compactTrackList__item a.trackItem__trackTitle", function( jNode ) {
+    var playerUrlFixed = linkRemoveSetParameter( jNode.attr( "href") );
+
+    jNode.after( '<a href="'+playerUrlFixed+'" title="'+playerUrlFixed+' (opens in a new tab)" target="_blank" class="mdb-element mdb-copyLink">Link</a>' );
+});
+
+// .copyLink on click open new tab
+waitForKeyElements(".mdb-copyLink", function( jNode ) {
+    jNode.click(function(){
+        var url = $(this).attr("href");
+        window.open( url, "_blank" );
+    });
+});
+
+// button to copy link (no href)
+// hide it (would copy url with in parameter)
+waitForKeyElements(".listenDetails__trackList li a.trackItem__trackTitle", function( jNode ) {
+    jNode.hide();
+});
+waitForKeyElements(".listenDetails__trackList li button.sc-button-copylink", function( jNode ) {
+    jNode.remove(); // hide() would make it flash on playlist pages
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Favorited buttons
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Favorited buttons" );
+
+// if favorited before, show hidden soundActions
+waitForKeyElements(".listenDetails li .trackItem__actions:not(:visible)", function( jNode ) {
+    jNode.css('margin-left','.5rem').show();
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * [X] remove button
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: [X] remove button" );
+
+// if favorited before, show hidden soundActions
+waitForKeyElements("li.soundList__item .sound__body, li.searchList__item .sound__body", function( jNode ) {
+    var removeItem = '<div class="mdb-element mdb-removeItem hand sc-text-grey" title="Remove the player (can be filtered out again with the hiding option &quot;X\'ed items&quot;)">X</div>';
+    jNode.append( removeItem );
+});
+
+// on click
+// scrolling is needed because it wouldn't load more when all visible are removed
+// Bound on the ONE button the callback was handed, not on every .mdb-removeItem on the page:
+// the latter added another handler to every older button each time a row arrived, so on a
+// long list the first X ran its handler a few hundred times per click - removing the row,
+// saving the slug and jiggling the scroll position that often.
+waitForKeyElements("li.soundList__item .mdb-removeItem, li.searchList__item .mdb-removeItem", function( jNode ) {
+    jNode.on("click", function(){
+        log( "click remove" );
+
+        // keep lazy loading active
+        $(".lazyInfo").remove();
+        $(".lazyLoadingList__list, .userStream__list .soundList").after('<div style="text-align:center; margin-bottom:20px" class="lazyInfo">Problems loading more players? Try scrolling up and down.</div>');
+
+        const soundItem = $(this).closest(listRowSelector);
+        const slug = getSlugFromSoundItem(soundItem);
+        addXedItem(slug);
+
+        var y = $(window).scrollTop();
+        $("html, body").animate({scrollTop:y + 1}, 0);
+        soundItem.remove();
+        var y = $(window).scrollTop();
+        $("html, body").delay(2).animate({scrollTop:y - 1}, 2);
+
+        if( $(".paging-eof").is(':visible') ) {
+            $('.lazyInfo').remove();
+        }
+    });
+});
+
+waitForKeyElements("li.soundList__item:not(.mdb-processed-xed), li.searchList__item:not(.mdb-processed-xed)", function( jNode ) {
+    jNode.addClass('mdb-processed-xed');
+    hideIfXed(jNode);
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Hide options
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Hide options" );
+
+// lazy loading lists (streams and feed)
+waitForKeyElements(".stream__list .lazyLoadingList", lazyLoadingList);
+waitForKeyElements(".userStream.lazyLoadingList", lazyLoadingList);
+waitForKeyElements(".soundList.lazyLoadingList", lazyLoadingList);
+waitForKeyElements(".trackList.lazyLoadingList", lazyLoadingList);
+
+// Search results have a lazy loading list of their own, and it is NOT one of the four above.
+// It gets the same bar, built by the same function - the rows in it carry the same markup as a
+// stream's, see listRowSelector.
+// https://soundcloud.com/search?q=vamos%20show
+waitForKeyElements(".searchList.lazyLoadingList", searchList);
+
+function searchList( jNode ) {
+    // Tested inside the handler, not at registration time: SoundCloud goes from the search page
+    // to a track and back without ever loading a document, and waitForKeyElements keeps the one
+    // closure it was registered with. Returning true leaves the node on the watch list, so a
+    // later switch to a tab we DO filter is still picked up.
+    if( !isSearchTabWithTracks() ) return true;
+
+    logFunc( "searchList" );
+
+    lazyLoadingList( jNode );
+}
+
+// setupStreamActionsFilterRow
+// Brings up the filter row inside #mdb-streamActions: the UI itself plus the machinery feeding
+// it - client_id/duration sniffing on fetch and XHR, the IntersectionObserver evaluating cards
+// as they scroll into view, and the DOM/SPA watcher. All of it lives in script.funcs.js.
+// Called by every list that offers the row, i.e. the stream/profile lists and the search
+// results. Everything but mountUI()/refreshVisible() is global to the document and installed
+// once: a second observeDOM() would add a second MutationObserver plus a second SPA poll, and
+// a second installNetworkHooks() would wrap the already wrapped fetch again.
+var streamActionsHooksInstalled = false;
+
+function setupStreamActionsFilterRow( caller ) {
+    logFunc( "setupStreamActionsFilterRow (" + caller + ")" );
+
+    if( !streamActionsHooksInstalled ) {
+        streamActionsHooksInstalled = true;
+
+        log( "setupStreamActionsFilterRow: installing the global hooks (installNetworkHooks, attachIO, observeDOM)." );
+        installNetworkHooks();
+        attachIO();
+        observeDOM();
+    } else {
+        log( "setupStreamActionsFilterRow: global hooks are already installed - only mounting the row." );
+    }
+
+    mountUI();
+    refreshVisible();
+}
+
+function lazyLoadingList(jNode) {
+    logFunc( "lazyLoadingList" );
+
+    // add checkboxes
+    if( $("#mdb-streamActions").length === 0 ) {
+        jNode.before('<div id="mdb-streamActions" class="sc-text-grey"><div id="mdb-streamActions-hide"></div></div>');
+
+        // vars
+        var saHide = $("#mdb-streamActions-hide"),
+            checkedPl = "checked",
+            checkedReposts = "",
+            checkedFav = "",
+            checkedUsed = "",
+            checkedXed = "";
+        if( getHidePl == "false" ) checkedPl = '';
+        if( getHideReposts == "true" ) checkedReposts = 'checked';
+        if( getHideFav == "true" ) checkedFav = 'checked';
+        if( getHideUsed == "true" ) checkedUsed = 'checked';
+        if( getHideXed == "true" ) checkedXed = 'checked';
+
+        // Display filter options per tab type
+        saHide.append('<span class="mdb-darkorange">Hide:</span>');
+        if( isSetsTab() ) {
+            saHide.append( "Filter options on pages with multiple playlists create too much server load. Open the playlist/set page of interest individually." );
+        } else {
+            if( !isSetPage() ) {
+                saHide.append('<label class="pointer"><input type="checkbox" id="hidePl" name="hidePl" '+checkedPl+' value="">Playlists</label>');
+
+                // Search results are never reposts - SoundCloud lists the original upload - so
+                // the checkbox would sit there with nothing to do.
+                if( !isSearchPage() ) {
+                    saHide.append('<label class="pointer"><input type="checkbox" id="hideReposts" name="hideReposts" '+checkedReposts+' value="">Reposts</label>');
+                }
+
+                saHide.append('<label class="pointer" title="Hide players that are favorited by you"><input type="checkbox" id="hideFav" name="hideFav" '+checkedFav+' value="">Favs</label>');
+            }
+            saHide.append('<label class="pointer" title="Hide players that are used on MixesDB"><input type="checkbox" id="hideUsed" name="hideUsed" '+checkedUsed+' value="">Used</label>');
+            saHide.append('<label class="pointer" title="Hide items you previously removed with the X button"><input type="checkbox" id="hideXed" name="hideXed" '+checkedXed+' value="">X\'ed items</label>');
+        }
+    }
+
+    // Filter row
+    if( !isSetsTab() ) {
+        setupStreamActionsFilterRow( "lazyLoadingList" );
+    } else {
+        log( "lazyLoadingList: isSetsTab - skipping filter row setup." );
+    }
+
+    // reload
+    // readHideOptions() reads the options back off the query string, so switching one means
+    // loading the page again with its new value in there.
+    // Namespaced .off()/.on(): lazyLoadingList() runs once per matching list, and the
+    // checkboxes are built only for the first of them, so a plain .change() would stack a
+    // second handler on the same box.
+    $("#hidePl").off("change.mdbHideOption").on("change.mdbHideOption", function(){
+        switchHideOption( "hidePl", hidePlaylistsKey, this.checked );
+    });
+    $("#hideReposts").off("change.mdbHideOption").on("change.mdbHideOption", function(){
+        switchHideOption( "hideReposts", hideRepostsKey, this.checked );
+    });
+    $("#hideFav").off("change.mdbHideOption").on("change.mdbHideOption", function(){
+        switchHideOption( "hideFav", hideFavoritesKey, this.checked );
+    });
+    $("#hideUsed").off("change.mdbHideOption").on("change.mdbHideOption", function(){
+        switchHideOption( "hideUsed", hideUsedKey, this.checked );
+    });
+    $("#hideXed").off("change.mdbHideOption").on("change.mdbHideOption", function(){
+        switchHideOption( "hideXed", null, this.checked );
+    });
+}
+
+// hideOptionsUrl
+// The current URL with all five hiding options written into its query string, the one just
+// switched carrying the new value. Everything ELSE in the query string is kept: on a search
+// page ?q= IS the page, and the reload used to be built from the URL with the whole query
+// string cut off, which dropped the search term along with the old options.
+// Returns "" where the URL cannot be parsed, so the caller can stay put instead of navigating
+// to nothing.
+function hideOptionsUrl( changedParam, value ) {
+    var url;
+
+    try {
+        url = new URL( window.location.href );
+    } catch( e ) {
+        log( "hideOptionsUrl: cannot parse " + window.location.href );
+        return "";
+    }
+
+    var values = {
+            hidePl: getHidePl,
+            hideReposts: getHideReposts,
+            hideFav: getHideFav,
+            hideUsed: getHideUsed,
+            hideXed: getHideXed
+        };
+
+    values[changedParam] = value;
+
+    Object.keys( values ).forEach(function( name ) {
+        url.searchParams.set( name, values[name] );
+    });
+
+    return url.href;
+}
+
+// switchHideOption
+// Persists the new state of one hiding option and reloads the page with it.
+function switchHideOption( paramName, storageKey, isEnabled ) {
+    logFunc( "switchHideOption: " + paramName + " -> " + isEnabled );
+
+    // X'ed items is the one option that is not kept under a plain hide-option key
+    if( storageKey ) {
+        setHideOption( storageKey, isEnabled );
+    } else {
+        setHideXedEnabled( isEnabled );
+    }
+
+    var target = hideOptionsUrl( paramName, isEnabled ? "true" : "false" );
+
+    if( !target ) {
+        log( "switchHideOption: no reload URL could be built - staying on the page." );
+        return;
+    }
+
+    window.location.href = target;
+}
+
+// Pass URL parameters for hiding options to user profile tabs
+waitForKeyElements(".userInfoBar__tabs ul", function( jNode ) {
+    $("a.g-tabs-link", jNode).each(function(){
+        var link = $(this),
+            href = link.attr("href"),
+            hidingParams = location.search;
+
+        logVar( "hidingParams", hidingParams );
+
+        if( /hide(?:Pl|Reposts|Fav|Used|Xed)=/.test(hidingParams) ) {
+            var href_hidingParams = href + hidingParams;
+            link.attr( "href", href_hidingParams );
+        }
+    });
+});
+
+// Hiding option: each playlist
+waitForKeyElements("li.soundList__item .sound.playlist, li.searchList__item .sound.playlist", function( jNode ) {
+    if( getHidePl == "true" ) {
+        log( "Hidden: " + jNode.closest(".soundTitle__title") );
+        jNode.closest(listRowSelector).remove();
+    }
+});
+
+// Hiding option: each repost player
+waitForKeyElements(".soundList__item .sc-ministats-reposts", function( jNode ) {
+    if( getHideReposts == "true" ) {
+        log( "Hidden: " + jNode.closest(".soundTitle__title") );
+        jNode.closest(".soundList__item").remove();
+    }
+});
+
+// Hiding option: each fFaved players > on waitForKeyElements fav button
+
+// Hiding option: each used player in one row of a list - see listRowSelector
+waitForKeyElements(".sc-link-primary.soundTitle__title", function( jNode ) {
+    if( getHideUsed == "true" ) {
+        logFunc( "Hiding used players in a list row" );
+
+        var wrapper = jNode.closest(listRowSelector),
+            playerUrl = "soundcloud.com" + jNode.attr("href");
+
+        logVar( "list row playerUrl", playerUrl );
+
+        getToolkit( playerUrl, "hide if used", "lazy loading list", wrapper );
+    }
+});
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Toolkit duration gate
+ *
+ * MixesDB does not take recordings under 20 min (Help:File_Details#Minimum_duration). The
+ * Page Creator already refuses those - and for the toolkit the MixesDB usage check could
+ * only ever answer "not used", so it is not loaded at all for them, which saves MixesDB
+ * that request. The red #mdb-fileInfo button is what tells the reader this is on purpose.
+ *
+ * The duration comes out of the ONE SC API answer the sc-button-group handler already
+ * fetches - no second SC API call for this. Since the toolkit handlers fire before that
+ * answer is in, they park their getToolkit() call here and it is released (or dropped)
+ * when the answer names the duration.
+ *
+ * The SC API can also die on the way (a failing token fetch never calls back - see
+ * getScAccessTokenFromApi), and the toolkit must not die with it: a parked call is released
+ * ungated after 10s. A duration of 0/unknown releases too - only a duration we positively
+ * know may drop the toolkit, the same rule mdbPageCreator_setTitle applies.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+var toolkitDurationGate_pending = null,  // the parked "load the toolkit now" call of the current track
+    toolkitDurationGate_durMs = null,    // null = the SC API has not answered for this track yet, 0 = answered without a duration
+    toolkitDurationGate_fallbackTimer = null;
+
+function toolkitDurationGate_clearFallbackTimer() {
+    if( toolkitDurationGate_fallbackTimer ) {
+        clearTimeout( toolkitDurationGate_fallbackTimer );
+        toolkitDurationGate_fallbackTimer = null;
+    }
+}
+
+// toolkitDurationGate_tooShort
+// Only a positively known duration may drop the toolkit - see the section comment.
+// mdbPageCreator_minDurationMs is the Page Creator's 20 min constant (page_creator.js), so
+// both features keep skipping at the same threshold.
+function toolkitDurationGate_tooShort() {
+    return toolkitDurationGate_durMs !== null
+        && toolkitDurationGate_durMs > 0
+        && toolkitDurationGate_durMs < mdbPageCreator_minDurationMs;
+}
+
+// toolkitDurationGate_decide
+function toolkitDurationGate_decide( fire ) {
+    if( toolkitDurationGate_tooShort() ) {
+        log( "toolkitDurationGate: track is " + Math.round( toolkitDurationGate_durMs / 1000 ) + "s, under the " +
+             ( mdbPageCreator_minDurationMs / 60000 ) + " min MixesDB minimum - toolkit (and its MixesDB usage check) skipped. " +
+             "The red #mdb-fileInfo button marks this as intended." );
+
+        // the loading skeleton waits for a toolkit verdict before it reveals - tell it that
+        // none is coming, or it would sit out its whole max wait
+        mdbSkeleton_noToolkit();
+        return;
+    }
+
+    fire();
+}
+
+// toolkitDurationGate_request
+// The toolkit handlers hand their getToolkit() call in here instead of firing it themselves.
+function toolkitDurationGate_request( fire ) {
+    logFunc( "toolkitDurationGate_request" );
+
+    toolkitDurationGate_clearFallbackTimer();
+
+    // duration already in (a React re-render of the same track): decide right away
+    if( toolkitDurationGate_durMs !== null ) {
+        toolkitDurationGate_decide( fire );
+        return;
+    }
+
+    log( "toolkitDurationGate_request: SC API answer not in yet - toolkit call parked." );
+    toolkitDurationGate_pending = fire;
+
+    toolkitDurationGate_fallbackTimer = setTimeout(function() {
+        if( toolkitDurationGate_pending ) {
+            log( "toolkitDurationGate: no SC API answer after 10s - loading the toolkit without the duration check." );
+            var pending = toolkitDurationGate_pending;
+            toolkitDurationGate_pending = null;
+            pending();
+        }
+    }, 10000 );
+}
+
+// toolkitDurationGate_resolve
+// Called with the SC API's duration (ms) once its answer is in - 0 for "answered, but no
+// usable duration" (an error, no track, no token), which releases the parked call ungated.
+function toolkitDurationGate_resolve( durMs ) {
+    toolkitDurationGate_durMs = ( typeof durMs === "number" && durMs > 0 ) ? durMs : 0;
+    logVar( "toolkitDurationGate_resolve: durMs", toolkitDurationGate_durMs );
+
+    toolkitDurationGate_clearFallbackTimer();
+
+    if( toolkitDurationGate_pending ) {
+        var pending = toolkitDurationGate_pending;
+        toolkitDurationGate_pending = null;
+        toolkitDurationGate_decide( pending );
+    }
+}
+
+// toolkitDurationGate_reset
+// SPA navigation: the parked call and the duration both describe the previous track.
+function toolkitDurationGate_reset() {
+    toolkitDurationGate_pending = null;
+    toolkitDurationGate_durMs = null;
+    toolkitDurationGate_clearFallbackTimer();
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Player page / features using SC API
+ * like soundAactions buttons and upload date
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Player page / SC API features (soundActions, download button, sc-button-group, trackHeader, description expand)" );
+
+/*
+ * fixDefaultSoundActions
+ * Make more space by removing button text for most
+ */
+waitForKeyElements(".soundActions", function( jNode ) {
+    logFunc( "fixDefaultSoundActions" );
+
+    var buyLink = $(".soundActions__purchaseLink", jNode);
+    if( buyLink.length !== 0 ) {
+        var buyLink_href = fixScRedirectUrl( buyLink.attr("href") );
+
+        buyLink.remove();
+        // an <a> carrying the button classes, not an <a> inside a <button> - see the new
+        // layout's #mdb-purchaseLink for why a nested anchor cannot be clicked
+        jNode.append( '<a class="'+soundActionFakeButtonClass+'" href="'+buyLink_href+'" target="_blank">Link</a>' );
+    }
+});
+
+/*
+ * SoundCloud's own download button (new layout)
+ *
+ * The redesign renders it as an unlabelled MUI icon button - its mui-* class names are
+ * generated per build and useless as a selector, so the aria-label is the only stable hook:
+ * <button ... aria-label="Download track"><svg>...</svg></button>
+ *
+ * We cannot download the file ourselves (the API's download_url needs the OAuth token as a
+ * header, so it cannot just be put into an <a href>), so #mdb-dlInfo forwards the click to
+ * that button instead.
+ */
+
+// The track page lives in the webi frame, but the header can also come from the top
+// document - search both, and only ever take a visible match: the header is rendered twice
+// (responsive mobile/desktop variants) and clicking the hidden copy does nothing.
+function findScVisibleElement( selector ) {
+    var docs = ( metaDoc !== document ) ? [ document, metaDoc ] : [ document ];
+
+    for( var i = 0; i < docs.length; i++ ) {
+        var found = $( selector, docs[i] ).filter(':visible').first();
+        if( found.length !== 0 ) {
+            return found;
+        }
+    }
+    return $();
+}
+
+// Selectors are tried one after the other, not as one comma list: a comma list returns
+// whatever comes first in the document, which could be an unrelated "Download the app"
+// button, while the exact aria-label is the one we actually want.
+function getScDownloadButton() {
+    var selectors = [ 'button[aria-label="Download track"]',
+                      '[role="menuitem"][aria-label^="Download track"]',
+                      'button[aria-label^="Download track"]' ];
+
+    for( var i = 0; i < selectors.length; i++ ) {
+        var found = findScVisibleElement( selectors[i] );
+        if( found.length !== 0 ) {
+            return found;
+        }
+    }
+    return $();
+}
+
+/*
+ * triggerScDownload
+ * Must be called straight from the click handler, never out of a timer: browsers only let
+ * the download through while the user gesture is still active.
+ * onFail() is called if the button cannot be found at all.
+ */
+function triggerScDownload( onFail ) {
+    logFunc( "triggerScDownload" );
+
+    var dlButton = getScDownloadButton();
+
+    if( dlButton.length !== 0 ) {
+        log( "Clicking SoundCloud's own download button" );
+        dlButton.get(0).click();
+        return;
+    }
+
+    // Not in the DOM: on narrow layouts the download sits in the header's overflow menu,
+    // and MUI only renders menu items once the menu is open.
+    var moreButton = findScVisibleElement( 'button[aria-label^="More"]' );
+
+    if( moreButton.length === 0 ) {
+        onFail();
+        return;
+    }
+
+    log( "No download button - opening the overflow menu" );
+    moreButton.get(0).click();
+
+    // The menu renders async, so poll for it - but briefly: the click still has to land
+    // inside the transient user activation window (~5s in Chrome).
+    var tries = 0,
+        poll = setInterval(function(){
+            var menuButton = getScDownloadButton();
+
+            if( menuButton.length !== 0 ) {
+                clearInterval( poll );
+                log( "Clicking the download entry of the overflow menu" );
+                menuButton.get(0).click();
+            } else if( ++tries > 20 ) {
+                clearInterval( poll );
+                onFail();
+            }
+        }, 50);
+}
+
+/*
+ * Call API
+ * .listen-content .soundActions > for premium account layout (?), e.g. https://soundcloud.com/grabthegroove/gtg-pdcst-046-pyramidal-decode
+ */
+// run all this only once
+var RUN_sc_button_group = true;
+
+// New Material "Track header" layout (since ~Aug 2026 redesign) has no button-group with room
+// for extra buttons, so API/file-details buttons go into #mdb-sc-trackExtras - and that wrapper
+// is what this handler waits for there.
+// It must NOT wait for the Track header section itself: waitForKeyElements keeps its
+// "alreadyFound" flag in one jQuery data key per element, so several handlers watching the same
+// element starve each other - whichever runs first flags it and the rest never see it.
+waitForKeyElements('.l-listen-wrapper .soundActions .sc-button-group, .listen-content .soundActions .sc-button-group, #mdb-sc-trackExtras', function( jNode ) {
+    log( "sc-button-group/#mdb-sc-trackExtras matched. RUN_sc_button_group: " + RUN_sc_button_group + ", matched selector on: " + ( jNode.attr("id") || jNode.attr("class") ) );
+
+    if( RUN_sc_button_group ) {
+        var isNewSoundCloudLayout = jNode.is('#mdb-sc-trackExtras'),
+            // Which track this run is for. Everything below is two network round trips deep
+            // (access token, then the track), and jNode/title/artwork/description all describe
+            // THIS track - so if the reader has clicked on to the next one meanwhile, the
+            // answer has to be dropped instead of written into their page. See
+            // mdbPageGeneration in global.js.
+            pageGeneration = mdbPageGeneration;
+
+        RUN_sc_button_group = false;
+
+        if( urlPath(2) != "sets" ) {
+
+            logFunc( "Player page / sound action buttons" );
+            logVar( "isNewSoundCloudLayout", isNewSoundCloudLayout );
+
+            // API call
+            getScAccessTokenFromApi(function(output){
+                if( !mdbIsCurrentPage( pageGeneration ) ) return;
+
+                scAccessToken = output;
+                logVar( "scAccessToken", scAccessToken );
+
+                if( scAccessToken != "null" ) {
+                    /*
+                     * Which track this page is about: asked of the API by its PLAYER URL.
+                     *
+                     * It used to be read out of meta[property="al:ios:url"] in the top
+                     * document, and that only ever worked because we forced a full reload on
+                     * every URL change. SoundCloud writes that meta when it SERVER-renders a
+                     * track page and does not rewrite it when its own router navigates, so
+                     * under SPA navigation it is either
+                     *   - absent, coming from the feed          -> "no track ID", no toolkit
+                     *   - the PREVIOUS track, coming from one   -> the mix before this one is
+                     *     what gets looked up, which is how its header, Page Creator row and
+                     *     tracklist ended up on the next mix's page.
+                     * Both symptoms disappear on a manual reload, which is exactly the tell.
+                     *
+                     * getScPlayerUrl() is built from the live pageLocation (the address bar in
+                     * either frame), so it always names the track actually on screen.
+                     */
+                    var scApiURl_currentTrack = "https://api.soundcloud.com/resolve?url=" + encodeURIComponent( getScPlayerUrl() );
+
+                    logVar( "scApiURl_currentTrack", scApiURl_currentTrack );
+
+                    $.ajax({
+                        beforeSend: function(request) {
+                            request.setRequestHeader( "Authorization", "OAuth " + scAccessToken );
+                        },
+                        dataType: "json",
+                        url: scApiURl_currentTrack,
+                        success: function( t ) {
+                            // The reader moved on while this was in the air - this whole
+                            // block writes the track it describes into the page, so it would
+                            // put the PREVIOUS mix's header, Page Creator row and tracklist
+                            // onto the one now on screen.
+                            if( !mdbIsCurrentPage( pageGeneration ) ) return;
+
+                            var kind = t.kind,
+                                id = t.id,
+                                title = t.title,
+                                created_at = formatScDate( t.created_at ),
+                                release_date = formatScDate( t.release_date ),
+                                last_modified = formatScDate( t.last_modified ),
+                                dur_ms = t.duration,
+                                downloadable = t.downloadable,
+                                download_url = t.download_url,
+                                apiArtworkUrl = t.artwork_url,
+                                purchase_url = t.purchase_url,
+                                purchase_title = t.purchase_title;
+
+                            logVar( "kind", kind );
+                            logVar( "title", title );
+                            logVar( "downloadable", downloadable );
+
+                            // releases (or drops) the parked getToolkit() call - see the
+                            // toolkit duration gate. A non-track answer counts as "no
+                            // usable duration", which releases ungated.
+                            toolkitDurationGate_resolve( kind == "track" ? dur_ms : 0 );
+
+                            // MixesDB does not take recordings under 20 min: no Page Creator
+                            // row, no tracklist box (the toolkit was dropped by the gate
+                            // above). Read off the gate so both use the same verdict.
+                            var tooShortForMixesdb = toolkitDurationGate_tooShort();
+
+                            if( kind == "track" ) {
+                                // trackHeader
+                                // in the new layout jNode is #mdb-sc-trackExtras itself, which already
+                                // brings its own #mdb-trackHeader, #mdb-sc-trackButtons and #mdb-toggle-target
+                                var soundActions = jNode,
+                                    trackHeader = isNewSoundCloudLayout ? $("#mdb-sc-trackHead #mdb-trackHeader") : $("#mdb-trackHeader"),
+                                    buttonTarget = isNewSoundCloudLayout ? $("#mdb-sc-trackButtons") : jNode;
+
+                                // Guard on the headline's own id, NOT on an h1 inside
+                                // trackHeader: in the new layout the headline is lifted out of
+                                // #mdb-trackHeader further down (insertAfter #mdb-sc-trackHead),
+                                // so trackHeader is h1-less again on the next API answer and the
+                                // whole block ran a second time - a duplicate headline until reload.
+                                if( $("#mdb-trackHeader-headline").length === 0 ) {
+                                    var trackHeader_content = '<h1 id="mdb-trackHeader-headline" class="hand"><span class="mdb-selectOnClick">'+title+'</span></h1>';
+
+                                    trackHeader_content += '<p id="mdb-trackHeader-releaseInfo" class="sc-text-grey">';
+                                    trackHeader_content += '<span id="mdb-trackHeader-releaseInfo-createDate"><span>Created at:</span> <date id="mdb-trackHeader-date1" class="mdb-selectOnClick hand">'+created_at+'</date></span>';
+                                    if( release_date != "" ) {
+                                        trackHeader_content += '<span id="mdb-trackHeader-releaseInfo-releaseDate"><span>Release date:</span> <date id="mdb-trackHeader-date2" class="mdb-selectOnClick hand">'+release_date+'</date></span>';
+                                    }
+                                    if( last_modified != "" ) {
+                                        trackHeader_content += '<span id="mdb-trackHeader-releaseInfo-lastmodDate"><span>Last modified:</span> <date id="mdb-trackHeader-date3" class="mdb-selectOnClick hand">'+last_modified+'</date></span>';
+                                    }
+                                    trackHeader_content += '</p>';
+
+                                    logVar( "trackHeader_content", trackHeader_content );
+
+                                    trackHeader.append( trackHeader_content );
+
+                                    var dateClass = "highlight mdb-selectOnClick hand";
+                                    if( release_date == "" ) {
+                                        $("#mdb-trackHeader-releaseInfo-createDate date").addClass( dateClass );
+                                    } else {
+                                        $("#mdb-trackHeader-releaseInfo-releaseDate date").addClass( dateClass );
+                                    }
+
+                                    // new layout: the dates share one row with the buttons
+                                    // (DL, duration, API), so move them over there before they are
+                                    // added. Move the whole #mdb-trackHeader-releaseInfo paragraph
+                                    // instead of the single spans - the grey and the date.highlight
+                                    // styles are scoped to that wrapper.
+                                    if( isNewSoundCloudLayout ) {
+                                        $("#mdb-trackHeader-releaseInfo").prependTo( buttonTarget );
+
+                                        // #mdb-trackHeader is one column of the #mdb-sc-trackHead
+                                        // flex row (the artwork info bar is the other), so a
+                                        // headline left in there only gets part of the width, and
+                                        // long titles wrap early. Lift it out to be a direct child
+                                        // of the wrapper, where it spans everything.
+                                        // It goes AFTER #mdb-sc-trackHead, not before it: that row
+                                        // has to stay the first thing in the wrapper so the artwork
+                                        // info bar keeps sitting directly below SoundCloud's own
+                                        // artwork. Putting the headline above it would push the bar
+                                        // down by the height of the headline plus the title row.
+                                        // #mdb-trackHeader stays behind as the empty flex spacer
+                                        // that keeps the artwork bar over on the right.
+                                        // The title suggestion is inserted AFTER the headline, so it
+                                        // follows it out here and gets the full width too.
+                                        $("#mdb-trackHeader-headline").insertAfter( $("#mdb-sc-trackHead") );
+                                    }
+                                }
+
+                                // MixesDB Page Creator (shared/page_creator/), below the
+                                // headline. Everything site-specific is read off the API
+                                // response here and handed over - the creator itself never
+                                // looks at a SoundCloud page.
+                                // Outside the h1 guard above: the row is only added once the
+                                // toolkit reported "not on MixesDB yet", which can land long
+                                // after the header was built (and the other way round).
+                                // dur_ms gates it: MixesDB does not take recordings under 20 min.
+                                // getScPlayerUrl() rides along for the {{Player}} of the page the
+                                // "Create" link starts - the same URL MixesDB embeds, which is
+                                // not what location.href holds here (see its comment above).
+                                // The artwork URL goes with it for MixesDB's image upload form;
+                                // it is NOT put on the page. scArtworkOriginalUrl() is applied
+                                // HERE and not over there: asking for the "-original" size is a
+                                // SoundCloud CDN trick, not something a Page Creator knows.
+                                // target as a selector string, not a node: SoundCloud re-renders
+                                // under us, and the string is looked up again on every render.
+                                // Not called at all for a track under the 20 min minimum:
+                                // mdbPageCreator_setTitle() would refuse the title anyway, but
+                                // skipping here also saves its MixesDB category lookup.
+                                if( !tooShortForMixesdb ) {
+                                    mdbPageCreator_add({
+                                        title:       title,
+                                        channel:     ( t.user && t.user.username ) ? t.user.username : "",
+                                        createdAt:   created_at,
+                                        releaseDate: release_date,
+                                        durationMs:  dur_ms,
+                                        playerUrl:   getScPlayerUrl(),
+                                        // The uploader's channel page, off the same API answer
+                                        // as the channel name. The Page Creator compares it to
+                                        // the URLs in the entity category's sibling pages -
+                                        // the wikitext linking this channel is what ties a
+                                        // category to a channel beyond the name.
+                                        channelUrl:  ( t.user && t.user.permalink_url ) ? t.user.permalink_url : "",
+                                        artworkUrl:  scArtworkOriginalUrl( apiArtworkUrl ),
+                                        // Not for the tracklist - that is the separate call below.
+                                        // The TITLE builder reads the labels the tracklist credits
+                                        // ("Artist - Title [Label]") out of it, so it can tell a
+                                        // label in brackets behind an artist from a second artist.
+                                        description: t.description,
+                                        // The "Buy" / "Free download" field. Searched for the
+                                        // Notes link next to the description and never written
+                                        // to the page as itself: on a podcast it is where the
+                                        // episode's own page is linked, and it is filled on
+                                        // plenty of tracks whose description names nothing.
+                                        // Every Groove Podcast episode carries its bit.ly here.
+                                        purchaseUrl: scPurchaseUrl( t.purchase_url ),
+                                        // Lets the created page's "== Notes ==" section reach
+                                        // the episode's real page where the description only
+                                        // shortens the link to it ("Go to bit.ly/BRCPod ...").
+                                        // Handed over rather than called over there because it
+                                        // needs GM_xmlhttpRequest, which is this script's grant
+                                        // - see scFollowRedirect() in script.funcs.js and the
+                                        // @connect list in the header, which has to name every
+                                        // shortener mdbPageCreator_notesShorteners does.
+                                        followRedirect: scFollowRedirect,
+                                        // what the "Report" box calls this site ("SC title:",
+                                        // "SC date:") - the short name a reported title is written
+                                        // with, not the script name
+                                        sourceLabel: "SC",
+                                        target:      "#mdb-trackHeader-headline",
+                                        placement:   "after"
+                                    });
+                                } else {
+                                    log( "Track is under the 20 min MixesDB minimum - no Page Creator row and no tracklist box." );
+                                }
+
+                                // add toggleTarget
+                                if( $("#mdb-toggle-target").length === 0 ) {
+                                    $(".listenDetails").prepend( '<div id="mdb-toggle-target"></div>' );
+                                }
+
+                                // The tracklist an uploader wrote into the description (or, when
+                                // there is none there, into a comment): the Page Creator finds
+                                // it, has MixesDB's Tracklist Editor format it and puts it into
+                                // an editable box that then rides along into the created page.
+                                // Only the description is handed over up front - the comments
+                                // cost another API call and are fetched from the callback, which
+                                // the creator only reaches when the description gave nothing.
+                                // Below the toolkit and above SoundCloud's own description, which
+                                // #mdb-toolkit gives us in BOTH layouts: in the new one the
+                                // toolkit is the last thing in #mdb-sc-trackExtras (which sits
+                                // right under the Track header), in the old one it is inserted
+                                // before .listenDetails__partialInfo, which holds the
+                                // description. It arrives from a MixesDB API call of its own, so
+                                // the creator waits for it rather than expecting it to be there.
+                                // Skipped for a too-short track along with mdbPageCreator_add()
+                                // above: its box waits for a toolkit verdict, and the duration
+                                // gate dropped that toolkit.
+                                if( !tooShortForMixesdb ) {
+                                    // Channel handles before the creator ever sees the text:
+                                    // uploaders credit remixers by @handle ("Blur - Tender
+                                    // (@reyneke Reinterpretation)"), and a handle is not an
+                                    // artist name. See scResolveHandles() in api_funcs.js.
+                                    //
+                                    // The detector runs HERE first, and only its own text is
+                                    // scanned for handles - that is the gate that keeps a
+                                    // description without a tracklist (most of them) from
+                                    // costing a single lookup. The creator detects again on
+                                    // the text handed over, which is what it has always done.
+                                    var descFound = mdbTracklist_detectInText( t.description );
+
+                                    scResolveHandles( descFound ? descFound.text : "", [ t.description ], function( descTexts, descReplaced ) {
+                                        // the lookups are a round trip of their own - the
+                                        // reader may have clicked on to the next track since
+                                        if( !mdbIsCurrentPage( pageGeneration ) ) return;
+
+                                        // no-op when nothing was resolved: the box only warns
+                                        // about names we actually put there
+                                        mdbPageCreator_addTracklistNotice( scHandleNoticeHtml( descReplaced ) );
+
+                                        mdbPageCreator_addTracklist({
+                                            description:  descTexts[0],
+                                            loadComments: function( done ) {
+                                                // id, not a track ID read off the page: it comes out of
+                                                // the very response being handled, so it cannot name
+                                                // another track than the one this row is for.
+                                                getScTrackComments( id, scAccessToken, function( bodies ) {
+                                                    var found = mdbTracklist_detectInComments( bodies );
+
+                                                    // Same gate as above. The swap is made in ALL
+                                                    // bodies, not just the one the detector picked:
+                                                    // the creator re-reads the array itself, so a
+                                                    // replacement in a single body would be lost.
+                                                    scResolveHandles( found ? found.text : "", bodies, function( swapped, swappedReplaced ) {
+                                                        if( !mdbIsCurrentPage( pageGeneration ) ) return;
+
+                                                        mdbPageCreator_addTracklistNotice( scHandleNoticeHtml( swappedReplaced ) );
+                                                        done( swapped );
+                                                    });
+                                                });
+                                            },
+                                            target:       "#mdb-toolkit",
+                                            placement:    "after"
+                                        });
+                                    });
+                                }
+
+                                // indicate download is available
+                                // cannot add DL url, thus only a button, but that cannot trigger the dropown to open
+                                // therefor rename the dropdown to "DL"
+                                // In the new layout the hint gets its own button next to the other
+                                // trackExtras buttons, which forwards the click to SoundCloud's own
+                                // download button - see triggerScDownload().
+                                if( downloadable ) {
+                                    if( isNewSoundCloudLayout ) {
+                                        if( $("#mdb-dlInfo").length === 0 ) {
+                                            buttonTarget.append('<button id="mdb-dlInfo" class="'+soundActionFakeButtonClass+'" title="Download this track (triggers SoundCloud\'s own download button)">DL</button>');
+
+                                            $("#mdb-dlInfo").click(function(){
+                                                var dlInfoButton = $(this);
+
+                                                triggerScDownload(function(){
+                                                    log( "SoundCloud's own download button was not found" );
+                                                    dlInfoButton.addClass("mdb-dlInfo-failed")
+                                                                .attr( "title", "SoundCloud's own download button could not be found - please use it directly" );
+                                                });
+                                            });
+                                        }
+                                    } else {
+                                        $(".sc-button-more", jNode).html('<span class="mdb-fakeDlButton">DL</span>');
+                                    }
+                                }
+
+                                // buy/purchase link
+                                // The old layout offered it as .soundActions__purchaseLink in the DOM, the
+                                // new one hides it away - take it from the API response instead.
+                                // The link IS the button, it is not an <a> inside a <button>: SoundCloud's
+                                // own .sc-button rule (which soundActionFakeButtonClass pulls in for the
+                                // look) sets pointer-events: none on every child, so a nested anchor never
+                                // receives the click - the button swallows it and nothing happens. An <a>
+                                // carrying the button classes is what SoundCloud does itself and what we
+                                // already do for a.mdb-tidSubmit.sc_button-mdb.
+                                if( isNewSoundCloudLayout && purchase_url && $("#mdb-purchaseLink").length === 0 ) {
+                                    var purchase_href = scPurchaseUrl( purchase_url ),
+                                        purchase_text = purchase_title ? purchase_title : "Buy";
+
+                                    buttonTarget.append( '<a id="mdb-purchaseLink" class="'+soundActionFakeButtonClass+'" href="'+purchase_href+'" target="_blank">Link</a>' );
+                                }
+
+                                // artwork: link to the original plus its dimensions/file type
+                                // goes into the head row (right of the title), not into the button row
+                                if( isNewSoundCloudLayout && apiArtworkUrl && $("#mdb-artwork-input-wrapper").length === 0 ) {
+                                    append_artwork_trackExtras( $("#mdb-sc-trackHead"), apiArtworkUrl );
+                                }
+
+                                // file details
+                                // TODO: get bytes from download url
+                                if( dur_ms ) {
+                                    if( $("#mdb-fileInfo").length === 0 ) {
+                                        //var bytes = getBytesSizeFromUrl_api( download_url, scAccessToken );
+                                        var bytes = "",
+                                            dur_sec = Math.floor(dur_ms/ 1000),
+                                            dur = convertHMS( dur_sec ),
+                                            // Too short for MixesDB: the file details are the
+                                            // wikitext that goes onto a mix page, and this track
+                                            // will never get one - so the duration is a plain
+                                            // label here and nothing opens under it. The red fill
+                                            // says why the toolkit and Page Creator are missing
+                                            // (styled in script.css, cursor included), and the
+                                            // tooltip spells it out. Leaving mdb-toggle and
+                                            // data-toggleid off is what makes it inert: the click
+                                            // handler in global.js binds by that class.
+                                            fileInfoClass = soundActionFakeButtonClass + ( tooShortForMixesdb ? ' mdb-fileInfo-tooShort' : ' mdb-toggle' ),
+                                            fileInfoToggle = tooShortForMixesdb ? '' : ' data-toggleid="mdb-fileDetails"',
+                                            fileInfoTitle = tooShortForMixesdb
+                                                ? 'Too short for MixesDB (under 20:00), so no toolkit, no Page Creator and no file details for this track.'
+                                                : 'Click to copy file details';
+
+                                        if( isNewSoundCloudLayout ) {
+                                            buttonTarget.append('<button id="mdb-fileInfo" class="'+fileInfoClass+'"'+fileInfoToggle+' title="'+fileInfoTitle+'">'+dur+'</button>');
+                                        } else {
+                                            soundActions.after('<button id="mdb-fileInfo" class="'+fileInfoClass+'"'+fileInfoToggle+' title="'+fileInfoTitle+'">'+dur+'</button>');
+                                        }
+
+                                        // no box for a track that is too short - it would only
+                                        // ever hold file details nobody can use
+                                        if( !tooShortForMixesdb ) {
+                                            $("#mdb-toggle-target").append( getFileDetails_forToggle( dur_sec, bytes ) );
+                                        }
+                                    }
+                                }
+
+                                // apiText-toggleButton
+                                //log($("#apiText-toggleButton").length);
+                                if( $("#apiText-toggleButton").length === 0 ) {
+                                    // remove artwork_url
+                                    // add modified artwork url for -original.ext
+                                    // tracks without an artwork return null here
+                                    var artwork_url = t.artwork_url,
+                                        artwork_url_original_try = artwork_url ? artwork_url.replace("-large.", "-original.") : "";
+                                    delete t["artwork_url"];
+
+                                    // move description to end of t array
+                                    var description = t.description;
+                                    delete t["description"];
+                                    t["description"] = description;
+
+                                    // move user to end of t array
+                                    var user = t.user;
+                                    delete t["user"];
+                                    t["user"] = user;
+
+                                    // build new re-ordered t_new array
+                                    // artwork urls on top
+                                    var t_new = { "artwork_url_original (try)" : artwork_url_original_try };
+                                    t_new["artwork_url"] = artwork_url;
+                                    // add remaining t values
+                                    $.each( t, function(key, value) {
+                                        t_new[key] = value;
+                                    });
+
+                                    // prepare apiText for toggle output
+                                    var apiText = textify( JSON.stringify( t_new, null, "\t" ) ),
+                                        apiTextLinkified = linkify( apiText );
+                                    //logVar( "apiText", apiText );
+
+                                    if( isNewSoundCloudLayout ) {
+                                        buttonTarget.append( '<button id="apiText-toggleButton" class="'+soundActionFakeButtonClass+' mdb-toggle" data-toggleid="apiText">API</button>' );
+                                    } else {
+                                        soundActions.append( '<button id="apiText-toggleButton" class="'+soundActionFakeButtonClass+' mdb-toggle" data-toggleid="apiText">API</button>' );
+                                    }
+                                    $("#mdb-toggle-target").append('<div id="apiText" style="display:none">'+apiTextLinkified+'</div>');
+                                }
+                            } else {
+                                // /resolve normally answers with the resource itself. If it ever
+                                // hands back a { status, location } pointer instead, kind is
+                                // undefined and everything above silently does nothing - which
+                                // is the one failure mode of switching to it, so it says so.
+                                log( "The API answered, but not with a track (kind: " + kind + ")" +
+                                     ( t && t.location ? " - it returned a pointer to " + t.location + " instead." : "." ) );
+                                addApiErrorNote( "no track in the API answer" );
+                            }
+                        },
+                        error: function() {
+                            log( "No track or no API!" );
+                            addApiErrorNote( "unknown error" );
+
+                            // no duration to gate on - release the parked toolkit call, but
+                            // only if the reader is still on the page this answer was for
+                            if( mdbIsCurrentPage( pageGeneration ) ) {
+                                toolkitDurationGate_resolve( 0 );
+                            }
+                        }
+                    });
+                } else {
+                    addApiErrorNote( "no access token" );
+                    toolkitDurationGate_resolve( 0 ); // no duration to gate on - release the parked toolkit call
+                }
+            });
+        }
+    } else {
+        // RUN_sc_button_group flips true->false once per successful build, but the Track header
+        // handler below resets it back to true whenever it has to recreate #mdb-sc-trackExtras
+        // from scratch (SoundCloud's own React re-render wipes the old node). So this branch is
+        // expected/harmless UNLESS it fires right after a recreation - that would mean the reset
+        // didn't happen and the buttons/dates/API toggle are stuck missing again.
+        log( "sc-button-group/#mdb-sc-trackExtras matched again but RUN_sc_button_group is false - " +
+             "buttons/dates/API toggle will NOT be (re)built this time (expected: already built for " +
+             "the current wrapper instance)." );
+    }
+});
+
+/*
+ * Re-order added soundActsions buttons (async)
+ */
+// TID submit to the end
+waitForKeyElements(".soundActions a.mdb-tidSubmit.sc_button-mdb:not(.moved)", function( jNode ) {
+    jNode.addClass("moved").appendTo( $(".soundActions") );
+});
+
+/*
+ * trackHeader
+ */
+// Add header from API call
+// Add here instead of after API call for less flashing
+waitForKeyElements(".l-listen-hero", function( jNode ) {
+    log( "Old layout: .l-listen-hero found - adding #mdb-trackHeader before it." );
+    var trackHeader = '<div id="mdb-trackHeader"></div>';
+    jNode.before( trackHeader );
+});
+
+// New Material "Track header" layout (since ~Aug 2026 redesign)
+// API/file-details buttons + toolkit go into a dedicated wrapper below the box,
+// since the new box has no room for extra buttons and its layout is not ours to change.
+// SC renders the track header twice (responsive mobile/desktop variants), only the :visible one matters.
+//
+// This is the ONLY handler allowed to watch the Track header section: waitForKeyElements keeps
+// its "alreadyFound" state in a single jQuery data key per element, so a second handler on the
+// same element would never get called. Everything else for this layout therefore hangs off
+// #mdb-sc-trackExtras - including the toolkit, which is kicked off right here.
+// No ":not(.mdb-processed-trackheader)" guard and no permanent "done" marker here on purpose:
+// #mdb-sc-trackExtras is a plain DOM sibling React knows nothing about, and SC's app wipes it
+// whenever an ancestor of the Track header section re-renders - e.g. when the description
+// below gets expanded/collapsed, which changes the page layout height. A one-shot guard would
+// leave the toolkit gone for good the first time that happens, so this keeps re-checking
+// forever (return true) and recreates the wrapper whenever it goes missing.
+// Diagnostic only (does not change behaviour): proves/times whether #mdb-sc-trackExtras is
+// really getting wiped by SoundCloud's own re-render, as opposed to never having been created
+// in the first place. Logged distinctly from a first-time creation below.
+var trackExtrasEverCreated = false;
+var trackExtrasRemovalObserver = null;
+
+function watchTrackExtrasForRemoval( node ) {
+    if( trackExtrasRemovalObserver ) {
+        trackExtrasRemovalObserver.disconnect();
+        trackExtrasRemovalObserver = null;
+    }
+
+    var parent = node && node.parentNode;
+    if( !parent ) {
+        log( "watchTrackExtrasForRemoval: #mdb-sc-trackExtras has no parentNode - cannot observe removal." );
+        return;
+    }
+
+    trackExtrasRemovalObserver = new MutationObserver(function() {
+        if( !document.contains(node) ) {
+            log( "#mdb-sc-trackExtras was REMOVED from the DOM after creation (most likely SoundCloud's own " +
+                 "React re-render wiping it, not our code - we never remove it ourselves). The Track header " +
+                 "handler recreates it and resets RUN_sc_button_group so the content gets rebuilt too." );
+            trackExtrasRemovalObserver.disconnect();
+            trackExtrasRemovalObserver = null;
+        }
+    });
+    trackExtrasRemovalObserver.observe( parent, { childList: true } );
+}
+
+// This handler intentionally polls forever (see "return true" below), and it is invoked once
+// per poll for BOTH the visible Track header and its permanently-hidden responsive duplicate -
+// so logging on every call floods the console within seconds and buries the one log line that
+// actually matters (a state change). trackHeaderLastLoggedState dedupes: only log when the
+// observable state (visible vs not, #mdb-sc-trackExtras present vs not) actually changes.
+var trackHeaderLastLoggedState = null;
+
+// SoundCloud serves this section with aria-label either "Track header" (space) or
+// "Track-Header" (hyphen, capital H) depending on account/rollout bucket - confirmed by
+// having a reporter's browser reach directly into its own webi iframe and report back
+// the literal attribute value, after an exact-string match against "Track header" alone
+// left his session completely silent (no elements, no error) while ours matched fine.
+// The case-insensitive "i" flag additionally guards against further capitalization
+// variants of either form.
+waitForKeyElements('section[aria-label="Track header" i], section[aria-label="Track-Header" i]', function( jNode ) {
+    if( urlPath(2) && urlPath(2) != "sets" ) {
+        // filtering by :visible in the selector itself is untested with an attribute selector
+        // in this codebase - check it as a separate runtime condition instead (proven pattern).
+        // The hidden responsive duplicate polls forever too but is never worth logging.
+        if( !jNode.is(':visible') ) {
+            return true;
+        }
+
+        var trackExtrasExists = $("#mdb-sc-trackExtras").length !== 0,
+            state = trackExtrasExists ? "present" : "missing";
+
+        if( state !== trackHeaderLastLoggedState ) {
+            log( "Track header handler: #mdb-sc-trackExtras is now " + state + " (urlPath(2): " + urlPath(2) + ")." );
+            trackHeaderLastLoggedState = state;
+        }
+
+        if( !trackExtrasExists ) {
+            if( trackExtrasEverCreated ) {
+                log( "#mdb-sc-trackExtras missing AGAIN - it existed before and was removed. RECREATING the wrapper now, and resetting RUN_sc_button_group so its content gets rebuilt too (see below)." );
+
+                // The wrapper being recreated means SoundCloud's React re-render wiped the old
+                // DOM node entirely - the new #mdb-sc-trackExtras is empty, so the one-shot
+                // RUN_sc_button_group guard (further up this file) must be allowed to fire once
+                // more for it, otherwise the buttons/dates/API toggle never come back (this was
+                // the actual bug: the guard used to stay false forever after the first build).
+                RUN_sc_button_group = true;
+            } else {
+                log( "#mdb-sc-trackExtras missing - creating buttons/toolkit wrapper now (first time)." );
+            }
+            trackExtrasEverCreated = true;
+
+            // #mdb-sc-trackHead is the row that holds the title (left) and the artwork info bar
+            // (right, below the artwork of the Track header box) - see script.css.
+            // #mdb-sc-trackButtons keeps the buttons above #mdb-toggle-target - appending them to
+            // the wrapper itself would push them below whatever an expanded toggle prints out
+            jNode.after( '<div id="mdb-sc-trackExtras"><div id="mdb-sc-trackHead"><div id="mdb-trackHeader"></div></div><div id="mdb-sc-trackButtons"></div><div id="mdb-toggle-target"></div></div>' );
+
+            logVar( "#mdb-sc-trackExtras created, now in DOM", $("#mdb-sc-trackExtras").length !== 0 );
+
+            watchTrackExtrasForRemoval( $("#mdb-sc-trackExtras").get(0) );
+
+            // Everything async that lands in this wrapper (buttons/dates from the SC API,
+            // the toolkit's MixesDB verdict, the Page Creator row, the tracklist box) used
+            // to pop in piece by piece. Cover the build-up with the pulsing grey skeleton
+            // instead and swap it out in one step - see mdbSkeleton_* in
+            // shared/page_creator/page_creator.js.
+            mdbSkeleton_show({
+                target: "#mdb-sc-trackExtras",
+                // pageCreator between dates and buttons: that is where the real row lands
+                // (mdbPageCreator_add places it after #mdb-trackHeader-headline)
+                rows:   [ "head", "dates", "pageCreator", "buttons", "toolkit" ],
+                extraReady: function() {
+                    // buttons built from the API answer, or the API failure note (a direct
+                    // wrapper child) - either way the SC API side is done
+                    return $("#mdb-sc-trackButtons").children().length !== 0
+                           || $("#mdb-sc-trackExtras").children("p.mdb-warning").length !== 0;
+                }
+            });
+
+            // toolkit goes full-width at the very end of the wrapper (below buttons and toggle
+            // target), instead of being squeezed into the old sidebar column.
+            // Not called directly: the call is parked in the duration gate and only released
+            // once the SC API answer above says the track is long enough for MixesDB.
+            log( "Requesting toolkit for #mdb-sc-trackExtras (parked until the SC API names the duration)." );
+            toolkitDurationGate_request(function() {
+                log( "Calling getToolkit() for #mdb-sc-trackExtras." );
+                // the wrapper is looked up at fire time: the parked call can outlive the node
+                // it was registered for (React wipe), and this handler re-requests for the new one
+                getToolkit( getScPlayerUrl(), "playerUrl", "detail page", $("#mdb-sc-trackExtras"), "append", jNode.find("h1").first().text(), "", 1, getScPlayerUrl() );
+
+                // the Page Creator row is gated behind that toolkit's usage verdict
+                mdbPageCreator_watchToolkit();
+            });
+        }
+    } else if( trackHeaderLastLoggedState !== "not-track-page" ) {
+        log( "Not a track detail page (urlPath(2): '" + urlPath(2) + "') - skipping trackExtras wrapper." );
+        trackHeaderLastLoggedState = "not-track-page";
+    }
+
+    // must return true (not just bail) - waitForKeyElements marks a node "alreadyFound" and
+    // stops calling back on it forever unless the callback returns a truthy "keep watching" value
+    return true;
+});
+
+/*
+ * Force full description
+ * The old layout was handled by CSS (.truncatedAudioInfo__wrapper), but the new one
+ * collapses the description via React state, so the "Show more" button has to be
+ * clicked. Its class names are generated (mui-*) and useless as a selector, so match
+ * it by its exact label - "Show more comments" and friends must not be clicked.
+ *
+ * The label is UI text, not an aria-label, so unlike "Track header" it IS translated by
+ * SoundCloud's own i18n - a German-locale account renders "Mehr anzeigen"/"Weniger
+ * anzeigen" instead of "Show more"/"Show less". A reporter on German Windows saw the
+ * description never auto-expand; their screenshot showed the untranslated button text,
+ * confirming the exact-English-string match was the cause. Both label lists below need a
+ * new entry for every additional locale MixesDB wants supported.
+ */
+var showMoreLabels = [ "Show more", "Mehr anzeigen" ];
+var showLessLabels = [ "Show less", "Weniger anzeigen" ];
+var descriptionExpandedOnce = false;
+
+if( isWebiFrame ) {
+    // One click attempt is not enough: the button ships in the server-rendered HTML of the
+    // frame, so a click that lands before React has hydrated it is swallowed without effect -
+    // and the old ":not(.mdb-processed-showMore)" selector made sure we never came back to it.
+    // Keep the node in waitForKeyElements' watch list instead (callback returns true) and click
+    // again on every poll. Once the description is expanded the label turns into "Show less",
+    // the selector stops matching and the retries end on their own; the counter is only the
+    // safety net for the case where clicking never takes effect at all.
+    const showMoreMaxClicks = 20;
+
+    // Force-expand only the FIRST time the description shows up collapsed. Without this flag,
+    // a user who manually clicks "Show less" afterwards gets fought forever: the button's label
+    // flips back to "Show more", the selector below matches it again, and per-node state (the
+    // click counter/class) is no help - React swaps in a fresh button element on every toggle,
+    // so each re-collapse looks like a brand-new, never-clicked button to us.
+    // "First time" means per track, not per browser tab: runSoundcloudPage() at the bottom of
+    // this file puts it back to false whenever SoundCloud swaps in another track, whose
+    // description arrives collapsed again. Hence declared outside this block.
+
+    // Confirms the expand actually took effect (not just that we clicked). Once SC ever shows
+    // "Show less"/"Weniger anzeigen", the description has been opened for this page view -
+    // after that, leave the user free to collapse/expand at will.
+    var showLessSelector = showLessLabels.map(function( label ) {
+        return 'button:contains("' + label + '")';
+    }).join(", ");
+
+    waitForKeyElements( showLessSelector, function() {
+        descriptionExpandedOnce = true;
+        return false;
+    });
+
+    var showMoreSelector = showMoreLabels.map(function( label ) {
+        return 'button:contains("' + label + '")';
+    }).join(", ");
+
+    waitForKeyElements( showMoreSelector, function( jNode ) {
+        if( descriptionExpandedOnce ) {
+            return false;
+        }
+
+        // "Show more comments"/"Mehr anzeigen" (of comments) and friends must not be
+        // clicked - drop those nodes for good unless the label is an exact match
+        if( showMoreLabels.indexOf( jNode.text().trim() ) === -1 ) {
+            return false;
+        }
+
+        // not rendered yet - do not give up on it, it is the description button
+        if( !jNode.is(':visible') ) {
+            return true;
+        }
+
+        const clicks = ( jNode.data("mdbShowMoreClicks") || 0 ) + 1;
+
+        if( clicks > showMoreMaxClicks ) {
+            log( "Giving up on expanding the truncated description after " + showMoreMaxClicks + " clicks" );
+            return false;
+        }
+
+        jNode.data("mdbShowMoreClicks", clicks).addClass("mdb-processed-showMore");
+
+        log( "Expanding the truncated description, click " + clicks );
+        jNode.get(0).click();
+
+        return true;
+    });
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Toolkit
+ *
+ * .listen-about .listenDetails > for premium account layout (?), e.g. https://soundcloud.com/grabthegroove/gtg-pdcst-046-pyramidal-decode
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+log( "Registering handlers: Toolkit (old layout)" );
+
+// The new layout fires its own getToolkit() from the Track header handler above - see the note
+// there on why it must not add a second watcher on that section.
+waitForKeyElements('.l-listen__mainContent .listenDetails__partialInfo:not(.mdb-processed-toolkit), .listen-about .listenDetails:not(.mdb-processed-toolkit)', function( jNode ) {
+    log( "Old layout toolkit handler fired (.listenDetails__partialInfo / .listenDetails). urlPath(2): " + urlPath(2) );
+
+    if( urlPath(2) && urlPath(2) != "sets" ) {
+        jNode.addClass("mdb-processed-toolkit");
+
+        //var titleText = $('meta[property="og:title"]').text();
+        var titleText = $("h1.soundTitle__title").text();
+        logVar( "titleText", titleText );
+
+        // Parked in the duration gate, not called directly - released once the SC API answer
+        // (fetched by the sc-button-group handler) says the track is long enough for MixesDB.
+        log( "Requesting toolkit for old layout .listenDetails (parked until the SC API names the duration)." );
+        toolkitDurationGate_request(function() {
+            log( "Calling getToolkit() for old layout .listenDetails." );
+            getToolkit( getScPlayerUrl(), "playerUrl", "detail page", jNode, "before", titleText, "", 1, getScPlayerUrl() );
+
+            // the Page Creator row is gated behind that toolkit's usage verdict
+            mdbPageCreator_watchToolkit();
+        });
+    } else {
+        log( "Not a track detail page - skipping old layout toolkit." );
+    }
+});
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * SPA navigation
+ *
+ * Registered last, because it resets state that is declared all over this file.
+ *
+ * Both frames install it, unlike the reload it replaces: the reload was a top-frame job
+ * because only the top frame owns the address bar, but the DOM work now happens where the
+ * DOM is - and on new-layout track pages that is the webi frame. The frame that does not own
+ * the address bar reads it from the top frame via getUrl below.
+ *
+ * The waitForKeyElements handlers above are NOT re-registered here: they poll for the
+ * lifetime of the document and onUrlChange() re-arms them - see global.js.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+function runSoundcloudPage() {
+    logFunc( "runSoundcloudPage" );
+
+    // All read off the URL, so the previous page's answers are worthless
+    readHideOptions();
+
+    // One-shot guards whose "shot" was fired for the previous track. onUrlChange() has just
+    // removed the elements they were guarding, so they have to go back to their starting
+    // value along with them, or the new track gets no buttons and no toolkit at all.
+    RUN_sc_button_group = true;
+    trackHeaderLastLoggedState = null;
+    descriptionExpandedOnce = false;
+
+    // The parked toolkit call and the duration both describe the previous track.
+    toolkitDurationGate_reset();
+
+    // Same fixed checkpoints as at script start - see the diagnostics section above for why
+    // this is unconditional rather than triggered by a handler.
+    if( urlPath(2) && urlPath(2) != "sets" ) {
+        runTrackPageDiagnostics( "after SPA navigation" );
+
+        [ 3000, 8000 ].forEach(function( delay ) {
+            setTimeout(function() {
+                runTrackPageDiagnostics( delay + "ms after SPA navigation" );
+            }, delay );
+        });
+    }
+}
+
+onUrlChange( runSoundcloudPage, {
+    // pageLocation is window.top.location in the webi frame, i.e. the address bar - the
+    // frame's own location.href is a /n/... URL that does not change per track.
+    getUrl: function() {
+        return pageLocation.href;
+    }
+});
+
+log( "script.user.js IIFE finished - all handlers registered." );
+
+})();
+
+/*
+ * Changelog
+ *
+ * 2026.11.18.1
+ * Moved to github.com/Subfader/Mixes-userscripts: @name drops " (by MixesDB)",
+ * @updateURL/@downloadURL and every @require and CSS URL load from the new repo.
+ *
+ * 2026.09.04.4
+ * Page Creator (title_builder.js v_92, page_creator.js v_132): a title carrying a character
+ * MixesDB cannot have in a page name no longer blinds the whole wiki lookup. Reported on
+ * "Hecklastig #009 >< Monokyma": the chunk "Hecklastig 009 >< Monokyma" went into the
+ * request as it stood, the mdbnames module refuses an invalid name for the WHOLE request, and
+ * the row read that refusal as "no category of this name" about every name in it - so
+ * Category:Monokyma and Category:Hecklastig were both painted red although they exist, and the
+ * "Similar:" row was left offering the very categories the page should have been filed under.
+ * "#<>[]|{}" is rewritten to a space before a name is asked about now, and a request that
+ * comes back refused says "lookup failed" on its chips instead of denying them.
+ *
+ * 2026.09.04.3
+ * Page Creator (page_creator.js v_131): shorturl.fm is followed like bit.ly now, so a
+ * description that writes "Check out episode 105 on TU https://shorturl.fm/..." instead of the
+ * episode page itself can still fill the created page's "== Notes ==" section. Its own host,
+ * not a typo for the shorturl.at already in the list, and a plain 302 with a Location header.
+ * Added to the @connect list too - without it the reader gets a permission dialog.
+ *
+ * 2026.09.04.2
+ * Page Creator (title_definitions.js v_58, title_builder.js v_91, page_creator.js v_130), four
+ * things off one report: "True Techno 111 - Pan-Pot" on the channel "True Underground (ONE / True
+ * Techno Podcast)" came out as "2026-09-03 - True Techno 111 Pan-Pot - True Underground". A channel
+ * name listing its names in a BRACKET is taken apart now - split on the slash alone it left the
+ * fragment "True Techno Podcast)", and the wiki's "no category of this name" about that fragment
+ * was cached as the answer about Category:True Techno Podcast, the category these episodes are
+ * filed under. The trailing-number strip no longer reads a counting word out of the middle of a
+ * word: "True Techno 111" was asked about as "True Tech", so the one name that opens that category
+ * was never asked. A show whose name ends in "Podcast"/"Radio"/... is found in a title that writes
+ * it WITHOUT that word, the episode number in its place, instead of the whole title becoming the
+ * artist and its two halves being glued into one name. And of several category pages linking one
+ * channel, the one THIS title backs wins: the signals are weighed now rather than counted, so a
+ * name read off the title outranks the channel name merely opening the category name.
+ *
+ * 2026.09.02.9
+ * Lists with the filter row no longer lag (script.funcs.js v_60). Four things did it, all in the
+ * "Filter:" machinery: every DOM mutation of the page - a hover, a second of playback - had the
+ * whole list evaluated again, each row asking for its getBoundingClientRect() with the previous
+ * row's attribute written in between, i.e. one forced layout per row; a row whose duration could
+ * not be answered was asked again every 1.6s for ever; the duration cache was serialised and
+ * written to localStorage on every API answer and every lookup; and the X button's click handler
+ * was bound to EVERY X on the page each time a row arrived, so one click on a long list ran it
+ * hundreds of times. Now the IntersectionObserver alone says what is on screen, the mutation
+ * observer only notices new rows, a slider move re-judges the list from what is already known
+ * (no lookup is repeated, dragging is immediate), the cache is written 2s after the last change
+ * at most and capped at 3000 entries, and the X binds to its own button.
+ * Lookups: one at a time and always for a row on screen right now, api-v2 only - api-widget
+ * answers 401 without a client_id, so every lookup was two requests with the first one failing.
+ * The client_id is also read off SoundCloud's earlier requests in the performance timeline.
+ * Fixed on the way: the cache was never read back (a temporal dead zone at load, swallowed by a
+ * catch - every visit started empty); "Favorites" alone also hid short tracks; and leaving only
+ * "Favorites" on switched "Durations" back on at the next visit.
+ *
+ * 2026.09.02.8
+ * Page Creator (title_builder.js v_90, page_creator.js v_129): the upload date is cut down to the
+ * plain day before anything reads it - Mixcloud dates a show with a full timestamp, and
+ * "2026-08-07T17:33:30Z" stood in the suggested title as it came. And an "&" now reads as the
+ * word "and" wherever a name is compared, so "Terrence Parker & Friends Radio Show 131" is filed
+ * under the wiki's spelling "Terrence Parker And Friends Radio Show" - a name the wiki denies
+ * with the "&" is asked in that spelling too, and a numbered edition is respelled off its
+ * series name.
+ *
+ * 2026.09.02.7
+ * Lists with a filter on keep loading (script.funcs.js v_59). SoundCloud fetches the next page
+ * of a lazy loading list from its scroll handler only, and hiding rows shrinks the list without
+ * a scroll: once the page was shorter than the window there was no way to scroll at all, the
+ * spinner sat in view for good and nothing loaded - on a search with "Durations >= 39" 9 of 11
+ * results were hidden and the page stopped right there. Whenever a row gets hidden (or the DOM
+ * changes otherwise, which covers the "Hide:" options removing rows) while the spinner is in
+ * view, a synthetic scroll event now runs SoundCloud's own check, at most once a second, so the
+ * list grows until something passes the filter or it reaches its end. Rows arriving with a
+ * later page are handed to the IntersectionObserver too, instead of waiting for some unrelated
+ * DOM mutation to evaluate them while in view.
+ *
+ * 2026.09.02.6
+ * Search results get the "Hide:" row too - Playlists, Favs, Used and X'ed items - not just the
+ * "Filter:" row of .3. The rows there carry the same markup as a stream's, only the wrapper
+ * differs (li.searchList__item instead of li.soundList__item), so every hiding handler now
+ * looks the entry up with listRowSelector (script.funcs.js v_58) instead of naming
+ * .soundList__item. No "Reposts" box: a search result is always the original upload.
+ * Switching an option no longer loses the search. The reload URL was built as "the URL with
+ * the query string cut off" + the five options, which threw away the ?q= the results exist
+ * for; hideOptionsUrl() now writes the options INTO the existing query string and leaves
+ * every other parameter alone, and switchHideOption() replaces the five near-identical
+ * change handlers.
+ * The persisted options are forced off on the search tabs that get no bar (people, albums,
+ * playlists), the same way the sets tab already does it - their rows carry the markup the
+ * handlers act on, and without a checkbox there is no way to switch an option off again.
+ *
+ * 2026.09.02.5
+ * Page Creator (page_creator.js v_128): the file details dropdown counts a show word anywhere in
+ * the suggested title or the player's own title, not only in the entity slot - "Vamos Music
+ * Radio Show - Guest Mix Tovio" had the show parsed as the artist and got none.
+ *
+ * 2026.09.02.4
+ * Page Creator (page_creator.js v_127): the file details dropdown also for a show the wiki has
+ * no category for yet, when the name's own words say it is one ("Low Orbit Radio Show") - its
+ * first page is where there is nothing to read.
+ *
+ * 2026.09.02.3
+ * The "Filter:" row of #mdb-streamActions (Durations >= n, Favorites >= n) now also sits above
+ * the search results (script.funcs.js v_57), on /search, /search/go and /search/sounds - the
+ * tabs that list single tracks. Its own lazy loading list is .searchList, which none of the
+ * four lazyLoadingList handlers matched, so the row had nowhere to mount. No "Hide:"
+ * checkboxes there: each of those reloads the page with its state in the query string, built
+ * from the URL with the query string cut off, which would drop the search's own ?q=.
+ * asCard() now hides the <li> of a search hit instead of the .searchItem inside it, or the
+ * list's own spacing stays behind as a gap. The hooks the row needs (fetch/XHR patch,
+ * IntersectionObserver, DOM/SPA watcher) moved into setupStreamActionsFilterRow() and are
+ * installed once per document instead of once per list that asks for the row.
+ *
+ * 2026.09.02.2
+ * Page Creator (page_creator.js v_126): the file details dropdown only for a show, podcast or
+ * radio category the wiki knows - never for Promo Mix, an artist, a venue or an unknown name -
+ * and the table entry reads as the bare duration ("1:02:33").
+ *
+ * 2026.09.02.1
+ * Page Creator (page_creator.js v_125, CSS): a dropdown behind "Create" for the file details
+ * body - the dur table with this file's duration, {{StandardShow1h}} or {{StandardShow2h}} (plus
+ * the siblings' own template where it is another one). Shown only where the entity's recent
+ * pages could not decide it: no known show category, a vote under the 90% bar, a template this
+ * file's duration contradicts, a failed fetch or too few pages. Opens on what the page text
+ * writes anyway; a pick rides into the created page and is named in the reasoning panel.
+ *
+ * 2026.08.28.1
+ * Via the shared detector (tracklist_detector.js v_15): a tracklist whose tracks each open with
+ * a timestamp - "00:36 = Artist - Title", "1:31:39 Artist - Title", with or without the
+ * numbering in front of it - arrives with that timestamp in the brackets MixesDB writes a cue
+ * in. The Tracklist Editor API reads the bare form as the line's numbering and leaves a stray
+ * "36" standing in front of the artist. Half the block has to carry one before any line is
+ * rewritten, so a single title ending in something clock-shaped is left alone.
+ *
+ * 2026.08.27.6
+ * Via the shared Page Creator (page_creator.js v_121): the lead artwork line no longer goes
+ * missing because ONE sibling's file name spells a character the wiki cannot put in a file
+ * name. MediaWiki replaces ":", "/" and "\\" with a "-" on upload, so
+ * "2017-09-21 - Mohr/Sula - Transmittal Tapes 6" is filed as "... - Mohr-Sula - ....jpg". That
+ * page read as "artwork named after something else", 6 of 7 is not 90%, and reasoning section 7
+ * said "no 90% agreement -> no image line" although all seven Transmittal Tapes pages open with
+ * their own artwork (reported 2026-08-27). Both sides use the uploaded name now - the vote and
+ * the [[File:]] line the new page is given, which for such a title used to point at a name the
+ * uploader can never create. Second change on the same vote: where the sample splits between
+ * "named after the page" and "named after something else" but NOT ONE page is without an
+ * artwork, the majority answer wins instead of the vote abstaining - a series where every page
+ * has a picture must not get its first page without one. A single page without an artwork still
+ * puts the 90% bar back in charge, and a venue's or event's pages, which lead with "named after
+ * something else", decide as before.
+ *
+ * 2026.08.27.5
+ * The Page Creator row states its font sizes in px instead of rem (page_creator.css): rem is
+ * the HOST page's root font size - 14px here, 16px on TrackId.net, 10px on YouTube - so the
+ * same row came out in three sizes. Nothing moves on SoundCloud (the px values are what its
+ * 14px root produced), the row just looks the same on every site now.
+ *
+ * 2026.08.27.4
+ * The loading skeleton shows the Page Creator row and the toolkit as two SEPARATE grey
+ * boxes instead of one merged block (page_creator.js v_119 - new "pageCreator" row type -
+ * and page_creator.css): the skeleton column itself is transparent now, the two feature
+ * stand-ins carry the dark surface, and the row's box sits between the dates and the
+ * buttons, where the real row lands. Heights tuned against a revealed track
+ * (coda-mix-066-offtrack): row box 90px, total unchanged at ~300px incl. margins.
+ *
+ * 2026.08.27.1
+ * The MixesDB modal is a shared feature now (shared/mixesdb_modal/, split out of
+ * page_creator.js v_118 - new @require, CSS loads itself): the toolkit's "used" mix page
+ * links carry a blue eye icon that frames the page in the same popup the category chips
+ * open, on every toolkit site. Chips, arrow-key walk and the kept frames behave as before;
+ * the walk now also steps through the toolkit's links, in page order.
+ *
+ * 2026.08.23.14
+ * Two ways an uploader separates without typing a separator (title_builder.js v_88).
+ * Reported on "SLo Motion @ Hidden Heights ::Sami J + Doog & Rich", channel "SLo Motion":
+ *     WRONG: 2026 - SLo Motion @ Hidden Heights ::Sami J + Doog & Rich
+ *     RIGHT: 2026 - SLo Motion @ Hidden Heights, Sami J, Doog & Rich
+ * The entity category was that whole glued string - a category nobody can ever have - and is
+ * Category:Hidden Heights now, with Sami J and Doog & Rich offered next to it.
+ *
+ * A GLUED separator run splits the title again. The "::" carried no space behind it, and the
+ * split every rule below works on wants whitespace on BOTH sides of a separator - so the tail
+ * rode along inside the venue name, was looked up as one name and filed the page under it.
+ * What makes the exception safe is the DOUBLING: nothing writes two of the SAME separator
+ * character in a row inside a name, so "::", "//", "||" and "--" are a boundary wherever they
+ * stand, spaces or not. A single glued separator is left alone - that one is a time ("20:00"),
+ * a date ("13/03/2025") or a name ("Jay-Z") as often as it is a boundary. The step runs next to
+ * the bracket and the dash-wrap rewrites and BEFORE both of them, because the exit those two
+ * share already cleaned a doubled run up on its way past: the same title got the fix when it
+ * happened to carry a bracket and did not when it did not.
+ *
+ * And a " + " between two names separates them. The "+" is deliberately NOT a character on the
+ * separator class: it is part of a name at least as often as it is a boundary ("B+",
+ * "AGF+DELAY", "+/-"), and some of the dozen places reading that class let a separator stand
+ * with no space next to it - with the character in there, "B+ live at Fabric" came out as
+ * "B @ Fabric". So it needs whitespace on both sides, which is the rule a label bracket has
+ * used for its "+" all along.
+ * The TITLE gets a "," and the CHUNKS get a boundary - the same split in two answers, the way
+ * mdbTitle_splitEventComma already cuts a chunk the suggested title keeps whole. In the title,
+ * what a "+" separates are two NAMES and not two parts of the title: written as a separator the
+ * halves became two title groups and the assembler flattened them into "Anja Schneider Ellen
+ * Allien", while the "," is the joiner MixesDB uses for artists who played one after another
+ * and the one a place group already strings its places with - right on either side of an "@",
+ * which is where the reported "+" stood. In the chunks the two names have to be two units, or
+ * the wiki is asked about "Sami J, Doog & Rich" - a name nobody can be filed under - on top of
+ * the two real ones, and the panel shows them as one chip.
+ * A "+" between two NUMBERS separates nothing and stays: "Vol. 1 + 2" is one recording, and a
+ * "," there files a mix under an artist called "2".
+ * 163 examples, all pass.
+ *
+ * 2026.08.23.12
+ * A name is asked in its other spellings once MixesDB denies it (title_builder.js v_86,
+ * page_creator.js v_117). Reported on "EG AFTER.189 Paco Wegman", channel "EG": MixesDB files
+ * that show as Category:EGAFTER and keeps 110 mixes in it, the title writes the name with a
+ * space, and the lookup asked exactly that and was told "no category of this name" - so the page
+ * was about to open a second, empty category next to the one holding the whole series.
+ *     WRONG: 2026-08-21 - Paco Wegman - EG AFTER.189
+ *     RIGHT: 2026-08-21 - Paco Wegman - EGAFTER.189
+ * mdbnames matches a name character for character (case aside), while the parser has always held
+ * "EG AFTER" and "EGAFTER" to be ONE name - everything it compares runs through
+ * mdbTitle_normalizeCompare, which keeps letters and digits and nothing else. So where the first
+ * round comes back empty, one more exact request goes out with the other spellings of those
+ * names, all of them at once: the glued form, the separators written as spaces and written away
+ * ("R.E.M." -> "REM" / "R E M"), and a glued name split where its own case says the words end
+ * ("EGAfter" -> "EG After"). Three spellings per name at most, and the glued one only for names
+ * of two or three words - "Live At Fabric London" glued is a string nobody ever typed.
+ * Nothing is guessed at: every spelling asked IS the same name, so the answer lands under the
+ * very key the denied name reads, and the title is respelled to the wiki's version of it. A
+ * LONGER name stays the row's business alone (the "Similar:" row), which never touches the
+ * builder's cache. Where the second round finds nothing either, the reasoning panel's section 3
+ * and the report box's "Lookups" lines say "also asked as ...", so a name asked twice never
+ * reads like one given up on.
+ * 162 examples, all pass.
+ *
+ * 2026.08.23.11
+ * One artist group carries one joiner (title_builder.js v_85, title_definitions.js v_57).
+ * Reported on "Observatory 143 – Sungate [with Lucient & Moy Santana]", channel "OpenLab Radio":
+ * the guests behind the "with" were joined onto Sungate with the "," we assume for a "w/", and
+ * the "&" the uploader had written between the two of them stayed where it was.
+ *     WRONG: 2026-08-21 - Sungate, Lucient & Moy Santana - Observatory 143
+ *     RIGHT: 2026-08-21 - Sungate, Lucient, Moy Santana - Observatory 143
+ * The two joiners mean different things - MixesDB reserves " & " for artists who played
+ * together and "," for one after another - so a group holding both claims to know that Lucient
+ * and Moy Santana played together while Sungate played before or after them, which nothing in
+ * the title says. The "," is ours and the "&" the uploader's, and where the two meet the one
+ * that says nothing wins: every " & " in such a group becomes a ",". An "&" standing alone is
+ * untouched ("Tonton & Tata"), and so are "b2b", "vs" and "pres." wherever they stand - those
+ * are words about the recording, not a separator we picked. In front of the "@" only: the ","
+ * of a place group strings venues and cities, not artists.
+ *
+ * 2026.08.23.10
+ * A similar category is written into the title, and the name MixesDB denied is offered back
+ * (page_creator.js v_116). Reported on "Dirtybird Radio 540 - Mitch Dodge", channel "DIRTYBIRD":
+ * the exact lookup answered empty about "Dirtybird Radio", the prefix round found
+ * "Dirtybird Radio Show" - a show with 9 mixes - and that answer reached the bar's "Similar:"
+ * row and nothing else, so the suggestion kept a name MixesDB does not have while the name it
+ * has sat on a yellow chip next to it.
+ *     WRONG: 2026-08-07 - Mitch Dodge - Dirtybird Radio 540
+ *     RIGHT: 2026-08-07 - Mitch Dodge - Dirtybird Radio Show 540
+ * Where the round finds exactly ONE such category for the title's ENTITY, it now goes into the
+ * suggestion, and the entity's recent pages are read for the episode format right after, as for
+ * any other entity - a category that exists is what the page files under and what its number's
+ * spelling comes from. The name the title wrote is not thrown away: it becomes the "Switch
+ * title" chip, one click back. With two or three answers nothing is written - the row cannot
+ * tell which series is meant - and every one of them is offered as a chip instead, which is the
+ * floor this never goes under. Artists are left out: a category whose name merely starts like a
+ * person's is usually a different person.
+ * The title builder is untouched by it - prefix answers still never enter its cache. What
+ * changes is a finished title, in the row, and the promoted name then goes through the ordinary
+ * exact lookup like any name typed into the field.
+ *
+ * 2026.08.23.9
+ * A series word left standing alone is dropped with the channel name it belonged to
+ * (title_builder.js v_84, title_definitions.js v_56). Reported on "Nocturna #038 // Max Hefele
+ * [Melodic Deep Series]", channel "Melodic Deep": the uploader signed the last chunk with the
+ * channel name plus the word saying what the channel is. Cutting the channel out of a chunk it
+ * signed is right - a channel signing its own title says nothing about who played - but what it
+ * left behind was a chunk reading "Series", which then glued itself onto the artist.
+ *     WRONG: 2026-08-07 - Max Hefele Series - Nocturna 038
+ *     RIGHT: 2026-08-07 - Max Hefele - Nocturna 038
+ * "Series" is no artist and no show: a word off mdbTitleShowSuffixWords names a show only
+ * together with a name, so once that name is gone there is nothing left of it and the chunk goes
+ * too. A NUMBER behind the word is the other case and stays - there the chunk counts an episode
+ * that still has to be named with the channel ("Podcast #323").
+ * 160 examples, all pass.
+ *
+ * 2026.08.23.8
+ * The channel's URL is asked about where no NAME reaches the series (page_creator.js v_115,
+ * title_builder.js v_83). Reported on the SoundCloud channel "EG en Español", which MixesDB has
+ * been filing as "Electronic Groove en Español Podcast" for 90 pages: the exact lookup answers
+ * empty, the prefix round answers empty - "EG en Español" starts no category - and neither name
+ * can be spelled into the other. The wiki holds the connection all the same, as a LINK: the
+ * category page carries "https://soundcloud.com/egesp" in its text. So where the name lookups
+ * left one of the two slots open, one more request goes out - list=exturlusage over namespace
+ * 14, the API behind Special:LinkSearch - asking which category page links this channel, and
+ * what comes back is read like a curated channel entry.
+ * It hardens the CHANNEL and nothing else, so it is only written where this title backs it: the
+ * title writing the category name, the category's own pages numbering their episodes with the
+ * id the title carries, that id spelling the category's initials, the channel name and the
+ * category name opening each other, or a name the wiki denied opening it. Unbacked, backed
+ * equally for two of the channel's categories, or an artist category: reported in the reasoning
+ * panel's section 3 and in the report box's new "Channel URL:" lines, and nothing is written.
+ *     WRONG: 2019-09-24 - EG en Español - EGE.090 Adonis Rivera
+ *     RIGHT: 2019-09-24 - Adonis Rivera - Electronic Groove en Español Podcast (EGE.090)
+ * 159 examples, all pass.
+ * Only sites handing a channelUrl over ask at all, which today means this one.
+ *
+ * 2026.08.23.6
+ * A curated channel rule is read with the channel name the SITE gives (title_builder.js v_81,
+ * title_definitions.js v_55). Third report on the channel "WHATS POPPIN by AKA AKA", and this
+ * one had its own answer on screen: the channel had been given its series entry - on this
+ * channel a title carrying "Rhythm Prism" is an episode of "Rhythm Prism Radio" - the lookup
+ * had followed it, "Rhythm Prism Radio, podcast, 123 mixes" stood in the panel, and the
+ * suggestion still wrote the uncurated "Rhythm Prism 085". Three rules out of it.
+ * The curated maps are keyed on the channel name as the site gives it, so they have to be read
+ * with that name: a channel crediting its maker is reduced to the maker alone ("WHATS POPPIN by
+ * AKA AKA" -> "AKA AKA") long before the series rule runs, and under that name the entry does
+ * not exist - while the lookup candidates, which never reduce, had found it. The two disagreed
+ * about the very same channel, which is why the answer was in the panel and not in the title.
+ * Then the curated show is not cut out of the title where a maker's "by" points at the number
+ * counting ITS episodes: cut, "Rhythm Prism Radio by AKA AKA Episode #085" leaves the connector
+ * standing as the artist and the number's keyword glued to the real one. Left whole, the credit
+ * is read by the "by" rule - which now takes it even on a mapped channel and even where the
+ * wiki files the show as a podcast, both fences being there because that rule DROPS the
+ * channel, and here it drops nothing.
+ * The presenter shape on the same channel needed one more: the channel's own name is no longer
+ * cut out of what is left over when a "pres." follows it, since there it is the artist and not
+ * the channel signing its own title, and a connector some cut left dangling now comes off the
+ * end of a name the way a dangling "by" already did.
+ *     WRONG: 2025-10-10 - AKA AKA - Rhythm Prism 085
+ *     RIGHT: 2025-10-10 - AKA AKA - Rhythm Prism Radio 085
+ * 158 examples, all pass.
+ *
+ * 2026.08.23.4
+ * The "Similar:" row stops asking about a bare NUMBER (page_creator.js v_113). Where the title
+ * counts its edition - "Trommel 251" - the number itself sat among the names MixesDB had been
+ * told no about, and asking what the wiki has that STARTS with "251" can only bring back other
+ * series' episodes. It is left out of that request now, and the panel's section 8 names it with
+ * that reason. The report box lists no name that was never asked at all any more - neither this
+ * one nor one that fell off the request's ten-name limit: a report is what the wiki was asked and
+ * what came back, and a "not asked" bullet in it is a name to wonder about with no answer to it.
+ *
+ * 2026.08.23.3
+ * The report box grew a fifth block, "## Similar lookups" (page_creator.js v_112): under every
+ * name MixesDB answered nothing about in "## Lookups", the categories whose names merely START
+ * like it - each with its type, its mix count, the same % the panel scores it with, and whether
+ * the bar's "Similar:" row showed it or dropped it and why. It is the reasoning panel's section 8
+ * written out, and it answers what "no category of this name" alone never could: whether the wiki
+ * really has nothing, or has the name spelled longer ("103" -> "103 Club, venue, 2 mixes"), which
+ * is usually where an expected title comes from. A name with nothing behind it says so in the
+ * panel's words ("no category starts like this name either"). The box now also refills when that
+ * looser round answers late, so an open box is never left quoting "looking for similar names …".
+ *
+ * 2026.08.23.1
+ * A name MixesDB knows in the TITLE now beats a channel name nothing backs (title_builder.js
+ * v_79, title_definitions.js v_53). From the "112 - unrushed by ena b." report on the channel
+ * "u n r u s h": both answers were in hand and both were ignored - "Unrushed" a podcast with
+ * 111 mixes, "Ena b." an artist with 2 - while the name that ended up in the title was the
+ * channel's, which the wiki has never heard of and the title does not even write. Nothing was
+ * wrong with the lookup; what went wrong is which branch took the title. The last of the
+ * branches that return a whole title as ONE name reads it as a numbered series naming NOBODY
+ * and puts the channel in front of the lot - and "names nobody" is exactly the claim the
+ * lookup can disprove. So a new rule stands in front of it: where the title's own "by" has a
+ * name MixesDB files as an ARTIST behind it, the title does name somebody, and that name wins.
+ * The wiki is the second source the old "by" rule says is missing. That one asks the WORDS -
+ * the bit in front of the word has to carry a number or a series word, since "Side by Side"
+ * and "Live by the Sea" are names - and "unrushed" carries neither, so the split never
+ * happened. An answer about the name behind the word settles it the way the numbered-name and
+ * the acronym rules are settled: nothing in the words can decide, only the wiki can. Both
+ * halves are asked about by design now, next to the chunk like every other reduction, instead
+ * of being reached by accident. The answer settles the spelling too, and where what was made
+ * is no known show and nothing numbers it, the mix is the artist's own and the page goes into
+ * Category:Promo Mix ("SET BY DJ MARIA." -> "DJ MARIA. - SET (Promo Mix)").
+ *     WRONG: 2026-07-13 - u n r u s h - 112 Unrushed By Ena b.
+ *     RIGHT: 2026-07-13 - Ena b. - Unrushed 112
+ * 156 examples, all pass.
+ *
+ * 2026.08.22.8
+ * The wiki's answer about a place is READ now, and a category's OWN PAGES are what say it is
+ * one (title_builder.js v_78). Second half of the HÖR report: with the name found at last,
+ * "HÖR - radio, 665 mixes" stood in the panel and changed nothing. The channel's own name
+ * stands in that title, so the branch that makes the channel the ARTIST glued everything else
+ * into one entity - and an entity is one name, so "4AM Records HÖR" went to the wiki as a whole,
+ * could only answer empty, and the page was about to be filed under Category:Promo Mix while
+ * Category:HÖR sat there with 665 mix pages.
+ * What makes a name a place is its own pages now, not its type: MixesDB files HÖR under
+ * Category:Radio and NTS Radio under Category:Radio too, but HÖR's pages are all live sets
+ * ("2026-05-09 - Scuba @ HÖR, Berlin") while NTS's are written as the show the set was
+ * broadcast on ("2026-04-03 - Ruf Dug - NTS Radio"). The word "radio" cannot tell the two
+ * apart, the pages can, and they ride along in the lookup answer already (mdbTitle_placeShape,
+ * the same evidence a series' episode-id scheme is read off). Two pages at least and a majority
+ * of them, asked LAST - behind the venue and the event rounds, so a name the wiki really types
+ * as a place is never decided by its pages - and the type it did answer is what the panel says,
+ * never "venue" about a radio.
+ * The CITY comes off the same pages wherever the title writes none: "@ HÖR" stands on no
+ * MixesDB page, every one of them writes "@ HÖR, Berlin". And the bit the group has no slot for
+ * no longer disappears in silence - a set played somewhere is written as who played it, where
+ * and in which town, and "4AM Records", the label whose night this was, fits none of the three.
+ * It costs 3 points and comes back as a "Switch title" chip that writes it in front of the
+ * place, the way MixesDB writes a party held at a venue ("@ 15 Years aufnahme + wiedergabe,
+ * HÖR, Berlin").
+ * Found on the way: "HÖR" read as a COUNTRY. mdbTitle_normalizeCompare keeps letters and digits
+ * alone, so the "ö" was dropped rather than folded and the name compared as "hr" - which is
+ * Croatia's code on mdbTitleCountries. Every place group threw the name out, and the wiki's own
+ * "2026-05-09 - Scuba @ HÖR, Berlin" read back as a title filed under nothing at all. An
+ * accented letter folds to its base letter now ("ö" -> "o"), which is also how that mix's own
+ * description writes the station ("Played some records at HOR").
+ *     WRONG: 2026-08-05 - Milan Hermess - 4AM Records HÖR (Promo Mix)
+ *     RIGHT: 2026-08-05 - Milan Hermess @ HÖR, Berlin
+ * 155 examples, all pass.
+ *
+ * 2026.08.22.7
+ * A name the site writes DECOMPOSED is one name again (title_builder.js v_77). From the
+ * "4AM Records - Milan Hermess | HÖR" report: "HÖR" was asked about as "Hör" and came back
+ * as "no category of this name", while Category:HÖR holds 665 mixes. SoundCloud does not write
+ * the "Ö" as the single character MediaWiki stores it as - it writes an "O" with a combining
+ * diaeresis behind it, which looks exactly the same and is a different string. Decomposed, the
+ * name counts four characters instead of three, so the rule that keeps a SHORT shouted name in
+ * caps ("KCE", "HÖR") no longer knew it for one and re-cased it into a "Hör" nobody is filed
+ * under; the compare key kept the bare "o" of the pair where the composed spelling drops the
+ * "ö" whole, so one name had two cache keys; and api.php, which normalizes what it is asked,
+ * answered "non-normalized data" and echoed the name COMPOSED - so its answer was filed under a
+ * key the asker never looks up. The composed form is put on every bit of outside text now,
+ * before a rule reads a character of it (mdbTitle_nfc: the player title, the channel name, the
+ * description, the edited title field and every name that goes to the wiki), which is the form
+ * MediaWiki stores every title in.
+ * The lookup was never case-sensitive, and nothing about it changed here: MixesDB is the
+ * case-sensitive half ($wgCapitalLinks = false), which is exactly why the API was asked for a
+ * case-INsensitive answer - "hör", "Hör" and "HÖR" all find Category:HÖR, as long as they are
+ * asked in the spelling the wiki stores.
+ * The reported title is unchanged by this: "HÖR" is a known radio with 665 mixes in the panel
+ * and in the report box now, while the entity slot still holds the two chunks glued together
+ * ("4AM Records HÖR"). 155 examples, all pass.
+ *
+ * 2026.08.22.6
+ * A place group ends at its city, and anything an uploader hangs behind it comes off the title
+ * (title_definitions.js v_52, title_builder.js v_76, page_creator.js v_111). From the
+ * "Blake Strange @ Sisyphos, Berlin [Dampfer]" report: the bracket became a chunk of its own,
+ * the "@" fold joined it into the place group with a comma, and the suggestion offered
+ * "@ Sisyphos, Berlin, Dampfer" - a place standing behind its own town, which MixesDB never
+ * writes. A group is written from the specific outwards and CLOSES with the city, so a part
+ * behind it is no place at all: it is the floor, the stage or the night the uploader played on,
+ * and the pages the wiki has of such a venue do not carry it. A country is the one exception,
+ * being wider than the town ("@ Watergate, Berlin, Germany"), and a group that OPENS with a
+ * city is left alone - that is an uploader writing it backwards, not a tail.
+ * The words are not lost: a new "Switch title" chip writes them back in FRONT of the place,
+ * where MixesDB does write a party held at a venue ("@ Utopia, Ritter Butzke, Berlin"), so
+ * "@ Dampfer, Sisyphos, Berlin" is one click away and the page files under Sisyphos either way.
+ * The cut costs 3 points and says which words left and where they would go, since only the
+ * uploader knows whether the floor is worth naming.
+ *     WRONG: 2026-08-01 - Blake Strange @ Sisyphos, Berlin, Dampfer
+ *     RIGHT: 2026-08-01 - Blake Strange @ Sisyphos, Berlin
+ *
+ * 2026.08.22.5
+ * A title that already carries an "@" is a set played SOMEWHERE, and the branch that reads the
+ * channel name out of a title now leaves it alone (title_builder.js v_75). From the "Anton &
+ * Hogi Wirjono All Night Long DJ Set at ZODIAC" report on the channel "hogi": MixesDB answered
+ * "Zodiac" as a venue with 4 mixes, and the suggestion ignored it. The channel's own name stood
+ * inside the title ("hogi" in "Hogi Wirjono"), which sent the title into the branch that makes
+ * the channel the artist and everything else the ENTITY - and an entity is one name, so the
+ * whole place group went in as one and nothing ever read the venue answer. The page was about
+ * to be filed under a brand-new "Anton & Wirjono All Night Long @ ZODIAC".
+ * "All Night Long" is a live marker now, and markers STACK (title_definitions.js v_51,
+ * title_builder.js v_75). The same title wrote two of them in a row ("All Night Long DJ Set
+ * at"), and only the one touching the connector was ever consumed - so the other stayed glued
+ * to the artist and went into the category lookup with it: "Hogi Wirjono All Night Long" was
+ * asked about, "Hogi Wirjono" never was.
+ * And the answer to that question is now read: the channel name is not cut out of a LONGER name
+ * MixesDB knows as an artist (title_builder.js v_75). Category:Hogi Wirjono holds mixes, so the
+ * "hogi" standing inside it belongs to that name - cutting it out invented an "Anton & Wirjono"
+ * who never played anywhere. Only the wiki's answer keeps the word: with no category of the
+ * longer name the cut stands, which is what a channel writing its name in front of a guest
+ * needs. A name strung with an "&" is asked about both ways for this, the parts and the whole.
+ *     WRONG: 2026 - hogi - Anton & Wirjono All Night Long @ ZODIAC
+ *     RIGHT: 2026 - Anton & Hogi Wirjono @ Zodiac
+ *
+ * 2026.08.22.4
+ * The "Report" box is Markdown now, in four headed blocks (page_creator.js v_110): "## Created"
+ * with the values the site handed over and what the suggestion made of them, "## Lookups",
+ * "## Mistakes / learnings" with two empty bullets, and "## Expected" for the answers only the
+ * reporter has. Pasted on Discord the headings render as headings, and a case file can quote
+ * one block at a time instead of a run of arrow lines.
+ * "## Lookups" is new material, not a re-wording: it lists every name MixesDB was asked about
+ * under "Artists:" and "Entities:" - the two columns of the reasoning panel's section 3, now
+ * sorted by one shared function - each in quotes, with what came back ("AKA AKA" -> artist, 230
+ * mixes, 95%) or with "no category of this name". That is the half of a case nobody can reconstruct
+ * afterwards: the categories say what the page was filed under, these lines say what the wiki
+ * knew at the time, which is what tells "the wiki had nothing" from "the wiki had it and the
+ * parse picked the other name" apart. The box now also refills when a lookup answers late,
+ * so an open box is never left quoting "looking it up …".
+ *
+ * 2026.08.21.16
+ * A numbered volume the uploader put out themselves is now filed under Category:Promo Mix
+ * (title_definitions.js v_49, title_builder.js v_73). From the Thumpa report: "Thumpa - We
+ * Call It Jump Up Jungle Vol 4" on the channel Thumpa got the right title, but the page was
+ * about to be created under "We Call It Jump Up Jungle Vol" - the series name with the
+ * counting word left dangling on it, since a "Vol" stays in the entity where an "Episode" is
+ * dropped. A volume is always the name of a THING, and nine out of ten times that thing is
+ * someone's own mix series rather than a numbered podcast, so where the channel stands in the
+ * title as the artist and the other bit carries the number, the page now files under Promo Mix
+ * instead of under the series. The title itself does not change and gains no "(Promo Mix)"
+ * marker - the name already says it - and the score stays where it was: the artist was read
+ * off the title, not guessed. The tenth case is a podcast that took the word into its own name
+ * ("Truancy Volume 300"), which the show words and the wiki's own answer keep out, and a title
+ * whose third bit names a guest keeps its series filing as before.
+ *
+ * 2026.08.21.6
+ * A credit behind an artist's name now comes off the title, and the lookup asks about the act
+ * on its own (title_definitions.js v_48, title_builder.js v_72, page_creator.js v_106). From
+ * the KODE9 report: "KODE9 FOR MAHARISHI - HYPERDUB 2014-2019 DRIVE-BY" was about to be filed
+ * under a brand-new empty Category:KODE9 For Maharishi, while Category:Kode9 holds 94 mixes
+ * and was never asked about at all - the whole bit was one candidate and one name nobody has.
+ * "for" now ends the act's name the way "im" ends it in front of a club: the name in front of
+ * it is asked next to the whole ("credit base" in section 3), the shortened forms of a long
+ * artist name ride along as the last questions of the request ("KODE9 For", origin "name
+ * head"), and the credit comes off only where the wiki answers nothing about the written name
+ * AND knows the act as an artist - the same two halves the room word and the line-up fraction
+ * are reduced under. The title becomes "2019-11-29 - Kode9 - Hyperdub 2014-2019 Drive-By
+ * (Promo Mix)", and the dropped words come back as a "Switch title" chip, since a name can be
+ * built around the word ("Dance For Life" is an event, not a credit) - the one chip that moves
+ * the filing with it. The entity slot is deliberately left alone: this title's own "Hyperdub
+ * 2014-2019 Drive-By" would shorten to Category:Hyperdub, the Rinse FM show with 48 episodes.
+ *
+ * 2026.08.21.4
+ * An episode number the uploader wrote into the NEXT bit of the title now goes to the show
+ * instead of staying with the artist (title_builder.js v_71). From the Playhaus report:
+ * "Playhaus: 001 Guliver" on the channel Playhaus became "001 Guliver - Playhaus Podcast",
+ * with the number stuck to the artist and the page filed under it. The curated channel rule
+ * had done its work - "Playhaus" had grown into "Playhaus Podcast" - but cutting the show
+ * name out of the title leaves the colon that used to separate the two bits standing in
+ * front of the number, and the rule that reads a number sitting right behind the show name
+ * ("HATE Podcast 496 Fadi Mohem") started at the first character. It steps over that
+ * separator now: "2024-10-02 - Guliver - Playhaus Podcast 001".
+ *
+ * 2026.08.20.29
+ * The reasoning panel's section 8, "Similar categories on MixesDB", now wears the blue of 1
+ * and 3 instead of the "Similar:" row's yellow (page_creator.css / cacheVersion 167): it is a
+ * lookup round like those two, and the yellow is the CHIPS' state colour on the bar, which the
+ * panel never uses to group sections.
+ *
+ * 2026.08.20.28
+ * The reasoning panel grew section 8, "Similar categories on MixesDB" (page_creator.js v_104,
+ * page_creator.css / cacheVersion 166): every answer of the prefix round behind the bar's
+ * "Similar:" row, the dropped ones included - each with the category, its type, its mix count,
+ * the same per-answer % as section 3, and the row's verdict (shown, or not shown with the
+ * reason: the per-name cap, too few mixes, already a chip on the bar, already shown behind an
+ * earlier name). Row and section render off ONE decision walk, so they cannot disagree. The
+ * prefix request's "API call" link moved from section 3 into the new section - nothing in 3
+ * reads its answers.
+ *
+ * 2026.08.20.27
+ * The "Similar:" chips flow inline and wrap, like the "Used categories" chips above them
+ * (page_creator.css / cacheVersion 165) - the one-per-line column was borrowed from the
+ * "Hints:" row, whose long notes need their own line, and left a row of empty space behind
+ * every short "(artist, 21 mixes)" note here. Each chip-plus-note pair still wraps as a unit.
+ *
+ * 2026.08.20.26
+ * The UFO95 @ Dommune report, in four rules. (1) The title builder no longer reads a NAME as
+ * an episode id (title_builder.js v_68): "UFO95 LIVE @ DOMMUNE" on the channel UFO95 had the
+ * artist's own name consumed as a glued id, which turned the title inside out - the venue
+ * became the artist and the page filed under [[Category:Dommune]] as its ARTIST
+ * ("2025-03-13 - Dommune - UFO95 (UFO95)"). An id-shaped token touching an "@" is a name
+ * (the both-sides rule mdbTitle_takeShowOutOfTitle already held to), and so is a token
+ * MixesDB knows as a category of any type ("UFO95", "Route 8" - digits can be part of a
+ * name). The title now comes out as "2025-03-13 - UFO95 @ Dommune" on the FIRST parse
+ * already. (2) The wiki's role answers are never used and argued against in one breath:
+ * where the artist slot holds a name known only as a venue/event and the show slot one known
+ * only as an artist - or the show slot alone holds a place - the exit puts the slots the
+ * wiki's way round, into the live "<artist> @ <place>" form (mdbTitle_result; a name also
+ * known in its slot's own role keeps the slot, a series answer keeps the entity, a promo and
+ * a real episode number block the flip). (3) A category chip whose name EXISTS under another
+ * type is never RED any more (page_creator.js v_103, page_creator.css): red is a wiki's "no
+ * such page", and the red "Dommune" led its reader to a category standing right there. Such a
+ * chip is yellow like "Similar:", links the category itself and says what is really in doubt
+ * - the title's roles; its folded-out mix list wears the same yellow. (4) The reasoning
+ * panel's % no longer docks a name for holding FEW mixes (title_builder.js): 7 mixes back a
+ * name exactly as 298 do, and the smaller number read as if it had settled a choice it never
+ * decides - the count only ever spoke to the display, never to the artist/entity decision,
+ * and now says so ("UFO95" scores 95% next to "Dommune" 95%). And a COUNTRY never files as an
+ * artist or entity and never becomes a chip, red or otherwise - it may stand in the title
+ * (behind an event: "@ S.U.N Festival, Hungary"), but no category line is written off it
+ * unless the wiki itself answers for the name. 145 examples, all pass.
+ *
+ * 2026.08.20.25
+ * A title that writes an "@" in front of a "#"-numbered EPISODE is read as the SERIES now, with
+ * the live reading offered next to it (title_builder.js v_67, title_definitions.js v_44,
+ * page_creator.js v_102). From the "Colossio @ Melodic Therapy #217 - Mexico" report on the
+ * channel CONNECT: such a title says two things that cannot both be written - the "@" that the
+ * set was played somewhere, the "#217" that the name behind it is a series - and read as a live
+ * recording it came out as "2026 - Mexico - Colossio @ Melodic Therapy 217", the country in the
+ * ARTIST slot with Colossio standing right there in front of the "@". The series is what is
+ * written now, because it is the half a number can prove: a show counts its episodes, a place
+ * does not. Neither half is thrown away - the date stays a gig's (the year alone: if the set
+ * really was played at that show, the upload day is not when it was played), and the live
+ * reading is a "Switch title" chip, country and all: "2026 - Colossio @ Melodic Therapy 217,
+ * Mexico". The page files under the same name either way, and the picked reading costs
+ * confidence and says so. Only the "#" spelling does this ("@ Club 69" keeps its joiner), an
+ * event keeps its "@" however it numbers its editions, and so does a title opening on the "@".
+ * The report's other half: a LONE country is left out of the written title wherever it would be
+ * a group too many - behind an artist AND an entity it is where the artist is from, the same
+ * byline the bracketed "(BE)" of "Adjust (BE)" writes - and it is no chunk and no lookup
+ * candidate there either, since a country is never a category. Only written in full, never as
+ * one of the country list's codes ("CAN", "NO", "IT" are everyday words), and only where two
+ * chunks are left standing without it: "Some Podcast 12 - Georgia" still files under Georgia.
+ * The reported title now comes out as "2026 - Colossio - Melodic Therapy 217". 144 examples,
+ * all pass.
+ *
+ * 2026.08.20.24
+ * The "Similar:" row now asks about the names the TITLE writes too, not only about the bar's
+ * red chips (page_creator.js v_101). From the "NTS - Sacred Pools - Toshiki Ohta - August 2026
+ * (No Voice Over)" report: the mix is built as a promo, so the only categories on the bar are
+ * the year, the artist and "Promo Mix" - the mix's own name stands in no category slot at all -
+ * and the "NTS" the exact lookup had just been told no about was asked by nobody, while
+ * MixesDB's "NTS Radio" starts exactly like it. The round now takes those names off the lookup
+ * log as well: only ones the wiki was really asked about and really denied (a name dropped over
+ * the 10-name limit or whose request died is neither), only while the title still writes them
+ * word for word, and never one that OPENS a name already on the bar - "HATE" under a green
+ * "HATE Podcast" chip would only ask a looser question about a filing the bar has settled, and
+ * that fence is also what keeps a fully-green row from firing a request it never fired before.
+ * The row renders off the same list the request was built from, so the two cannot disagree, and
+ * the request caps at 10 names like the exact round. Still hints only: the answers stay in their
+ * own cache, and nothing about the suggestion or the filing changes.
+ *
+ * 2026.08.20.23
+ * A chunk whose names a joiner strings together is read as the LINE-UP it is
+ * (title_builder.js v_66): "Asa 808 b2b Third Guy" scored as a series on the digits of a NAME,
+ * which sorted it into the entity column and skipped the per-name split, so neither artist was
+ * ever asked - and a title ending in such a list ("Third Guy b2b Asa 808") was number-stripped
+ * to "Third Guy b2b Asa" on top. A b2b/&/vs/comma list is artists whatever digits stand in it,
+ * only a series WORD still overrules it ("Drumcode Radio Live & Friends 123" stays one show's
+ * episode), and the number stays where the uploader wrote it: it belongs to the last name in
+ * the list, and no episode of a series is written as a b2b. Each member is asked exactly as
+ * written - "Asa 808" and "Third Guy", not "Asa". Follows the .21 round, which found the same
+ * "digits mean a series" reading on single names. No suggested title changes: all 141 examples
+ * pass unchanged.
+ *
+ * 2026.08.20.22
+ * A red category chip now gets a prefix round: once the exact lookup has answered empty, the
+ * red names are asked once more with mdbnames' match=prefix - all of them in ONE request -
+ * and what MixesDB has that STARTS like them renders as a "Similar:" row of yellow chips
+ * directly under "Used categories" (page_creator.js v_100, page_creator.css / cacheVersion
+ * 163). Yellow on purpose: not green (the page does not get them) and not red (nobody denied
+ * them) - a look to take, not a verdict, so the chips carry no fit score either (the used
+ * categories' percentage is a real fit score, and a number here would only dress the name
+ * resemblance up as one). Each chip links its category - joining the modal and its arrow-key
+ * walk - with the type and mix count as its note. Gentle for a start: at most 3 per red name,
+ * categories under 2 mixes dropped (mdbPageCreator_prefixMaxPerName / _prefixMinMixes), and a
+ * failed request is not retried. The answers live in their own cache and never reach the
+ * builder's - the title builder stays on exact match (row_enrichment.md's rule), so nothing
+ * about the suggestion changes. Section 3 closes with the request as an "API call" link like
+ * the other rounds. First cut of roadmap step 2's category family; the around-the-date
+ * sibling window stays open.
+ *
+ * 2026.08.20.21
+ * A name ending in a number is asked about BOTH ways now (title_builder.js v_65,
+ * page_creator.js v_99). From the "Flirt w/ Route 8 | BRL-071225" report: the lookup took the
+ * trailing number off every name, because that is how a series stands in a title
+ * ("HATE Podcast 498" is filed under "HATE Podcast") - but not every "<name> <number>" counts
+ * episodes. "Route 8" and "Asa 808" are artists, "Studio 80", "Bar 25" and "Club 69" are
+ * venues, and their category carries the digits. Asking the reduced form alone does not merely
+ * answer empty either: "Studio" finds four other clubs and "Front" a venue with 17 mixes, so
+ * the page could be filed under a category that has nothing to do with it. Both readings are
+ * asked now, the reduced one first, and the numbered one only where the title has not said the
+ * number counts editions - a counting word, a "#" or the "." of a series edition in front of
+ * it, a series word in the name, or a year all keep it out, so "HATE Podcast 498", "RA.971"
+ * and "Landjuweel Festival 2026" ask exactly what they asked before. Where the wiki knows the
+ * numbered name, the created page keeps the number in its category.
+ * The same report's other half: "w/" and "with" now end a CHUNK the way they already end a
+ * name in the parse. The guest is a candidate of their own ("Flirt", "Route 8"), where the
+ * whole thing used to be looked up glued together and number-stripped as "Flirt w/ Route" -
+ * "Slowciety w/ Asa 808" asked as "Slowciety w/ Asa". Read in front of the place group only,
+ * so "... w/ Route 8 @ 3000Grad Festival" does not come back as one artist named after the
+ * festival, and the guest stands where the title wrote them.
+ * No suggested title changes: all 140 examples pass unchanged.
+ *
+ * 2026.08.20.20
+ * The acronym expansion is decided by the CATEGORY'S OWN PAGE TITLES now, with the channel's
+ * initials demoted to the fallback (title_builder.js v_64, page_creator.js v_98). Every page
+ * of Category:Deep Space Series is titled "... - Deep Space Series (DSS 012)", which is the
+ * wiki saying the "DSS" of "DSS 140 | Space Drum Meditation" is that series' episode id -
+ * where "DSS" resembling "Deep Space Series" was only ever a resemblance. So the pages decide
+ * first, cost no confidence (85% instead of 80%), and their spelling of the id wins over the
+ * uploader's; the initials answer only where no page writes such an id, and still cost 5.
+ * The titles come out of the `recent` list the category lookup already carries, so this reads
+ * the wiki without asking it anything twice, and it does not care how old those pages are - a
+ * page titled that way says how the series is written whatever year it was written in.
+ * Which of the two answered is named by the reasoning step, the pick sentence and the
+ * confidence, so the change is never credited to the weaker reading.
+ * With it, the recent-pages age gate steps aside where the pages PROVE the category is this
+ * mix's: their titles carrying the very episode id this title does, or their wikitext linking
+ * this mix's channel. Category:Deep Space Series stopped in 2016 while this mix is episode 140
+ * of the same series on the same channel - the ten-year gap says MixesDB stopped keeping up,
+ * not that the pages are somebody else's, so the format, the page text and the entity chip's
+ * score use them again, and the panel's "Read:" line says how far behind the category is and
+ * what kept it in. The mix whose report built that gate (DEEP & HAZY on Category:Undercurrent)
+ * is untouched: no bracketed id in its title, and its 2015 club nights link no channel of the
+ * mix.
+ *
+ * 2026.08.20.19
+ * The acronym step of reasoning section 4 names what DECIDED, not what merely matched
+ * (title_builder.js v_63): "Series acronym read as the channel's initials" claimed the
+ * resemblance as the reason, when the initials only make the channel worth asking about -
+ * without the wiki's answers the title keeps "DSS 140". It now reads "Series acronym expanded
+ * to the channel's name" and its detail names all three facts in the order they were checked:
+ * the letters spell the channel's initials, MixesDB has no series category "DSS", and it knows
+ * "Deep Space Series" as a podcast. Display only, no title changes.
+ *
+ * 2026.08.20.18
+ * From the "DSS 140 | Space Drum Meditation" report (title_builder.js v_62, page_creator.js
+ * v_97): an entity written as a bare acronym plus a number, where the letters spell the
+ * channel name's initials in caps, is the channel's series abbreviating itself - and where
+ * MixesDB knows the channel name as a podcast/show while it has no series category of the
+ * letters alone, the suggestion now writes the full name with the title's own id in
+ * brackets: "2026-08-20 - Space Drum Meditation - Deep Space Series (DSS 140)", the way
+ * Category:Deep Space Series titles every one of its pages, and the page files under the
+ * channel's category instead of a lone "DSS". A show really called by the letters keeps
+ * them, and without the wiki's answers nothing expands.
+ * Second, the pick is hardened with URL evidence: the uploader's channel URL (new
+ * channelUrl option, read off the same SC API answer as the channel name) is compared to
+ * the URLs in the entity category's newest pages' wikitext - pages embedding
+ * soundcloud.com/deep-space-series players say whose series the category is, which no name
+ * match can. A hit raises the entity chip's fit score by 15 and names itself under
+ * "What backs it" in its tooltip, and reasoning section 7 opens with a "Channel link" row;
+ * absence proves nothing (older pages, other platforms) and charges nothing.
+ *
+ * 2026.08.20.16
+ * A live title whose place group names an event AND a venue now files the created page under
+ * both (title_builder.js v_61, page_creator.js v_96), wherever MixesDB has a category of each:
+ * "2026-06-13 - Lord Of The Isles @ Far Blue, Noordspace" carries [[Category:Far Blue]] and
+ * [[Category:Noordspace]], the way MixesDB's own pages carry the party next to the club. The
+ * name the title is filed under is written whether or not the wiki has it yet - a new venue's
+ * category is created with the page - while every further name of the group has to be a
+ * category that really exists under that exact name, which is what keeps the city out of the
+ * categories while it stays in the title. The "Used categories" row, the reasoning panel's
+ * section 6 and the report box (one "Entity category:" line per filing) say the same thing.
+ *
+ * 2026.08.20.15
+ * A vote every page agrees with is reported as "all 10 newest pages" instead of "10 of the 10
+ * newest pages" (page_creator.js v_95), and in a category smaller than the ten asked for the
+ * word "newest" is dropped altogether: "all 4 pages", "3 of the 4 pages", "the only page" -
+ * nothing was left behind there, so nothing should sound like it was.
+ *
+ * 2026.08.20.14
+ * Two wording fixes in reasoning section 7 (page_creator.js v_94). "Read: the 4 newest pages of
+ * X" reads as if six pages had been skipped, when the category simply holds four - the line now
+ * says "all 4 pages of X" wherever the fetched pages ARE the whole category (the API says so by
+ * offering no continuation), and keeps "the 10 newest pages of X" where there are more. Nothing
+ * was ever dropped: 30 categories were checked against the live API, and every short answer was
+ * a short category. The Player row's outcome is called "{Player} with single URL stays"
+ * instead of "the plain {Player} stays".
+ *
+ * 2026.08.20.13
+ * The reasoning panel's category links all read as the bare name now (page_creator.js v_93):
+ * sections 5 and 7 opened with "Read: the 10 newest pages of Category:Amplify Series" while
+ * every other category link in the panel says "Amplify Series". The "Category:" prefix stays
+ * where it belongs - in the [[Category:...]] lines section 6 prints, which are the wikitext the
+ * page really gets.
+ *
+ * 2026.08.20.12
+ * Reasoning section 7 labels its style rows "Shared styles" throughout - the hint case and the
+ * nothing-agreed case still read "Shared category"/"Shared categories" - and phrases every row's
+ * consequence behind the coloured " -> " arrow
+ * (page_creator.js v_91) - the no-agreement and kept-as-is rows used a plain dash, so what was
+ * observed and what it did to the page were not told apart the way the other rows do it.
+ *
+ * 2026.08.20.10
+ * Three style refinements in the Page Creator (page_creator.js v_90). The empty style rows now
+ * follow what the siblings show: one spare row behind the written style only where some of the
+ * entity's pages carry a further style (Tech House on 1 of Amplify Series' 10 - this mix may be
+ * such a page too), none where they use nothing else, and the plain two where no style was
+ * written. All 111 members of Category:Style are baked in, so classifying a shared category
+ * usually costs no request - only a name missing from that list (a style added to the wiki
+ * later) still asks the API. And reasoning section 7 labels a written style "Shared styles",
+ * drops the Category:Style plumbing from the row, and adds an "Other styles" line saying why an
+ * empty row was (not) left.
+ *
+ * 2026.08.20.9
+ * The style rows of a created page carry ONE blank line behind a style that was learned off the
+ * entity's recent pages, not two (page_creator.js v_89). The blank rows are a spare to type a
+ * further style into, not a shape to be filled: where a style was written, one of them is enough
+ * and a line too many is deleted faster than a missing one is added. A page where nothing was
+ * learned keeps the two blank rows it has always had.
+ *
+ * 2026.08.20.8
+ * A style at least 90% of the entity's recent MixesDB pages carry is written onto the created
+ * page again (page_creator.js v_88). Reported on
+ * soundcloud.com/dirtyepicla/amplify-series-138-reka-zalan: Category:Amplify Series carries
+ * [[Category:Techno]] on 10 of its 10 newest pages, reasoning section 7 said exactly that, and
+ * the page still came out with two blank style rows to be filled in by hand. The vote stopped
+ * writing on 2026-08-19 because it cannot tell a style from a coincidence: "Amsterdam Dance
+ * Event" stands on all 10 pages of Category:Undercurrent, whose MixesDB pages happen to be
+ * festival sets, and filing an unrelated podcast episode there is a wrong filing made for the
+ * editor.
+ *
+ * It is no longer guessed - MixesDB is asked. Its style categories are the ones filed under
+ * Category:Style, so one prop=categories request classifies whatever the vote produced (Techno,
+ * Deep House, Drum & Bass come back carrying it; Amsterdam Dance Event carries Category:Event),
+ * and only a confirmed style takes a style line. Every other winner stays the "Hints:" chip it
+ * has been, and so does a name whose answer is still on its way: nothing is filed on a name
+ * nobody confirmed. A written style joins the "Used categories" row as a plain grey chip like
+ * "Promo Mix", its tooltip naming the pages it was learned off, reasoning section 6 says the same
+ * next to the category line, and section 7 names the verdict per shared category and offers that request as
+ * its own "API call" link. Answers are cached per name for the session, so the second series
+ * voting for Techno costs no request at all. A site's own style suggestions box (TrackId.net) is
+ * untouched and still wins - those styles are read off the mix itself.
+ *
+ * 2026.08.20.7
+ * A tracklist posted as a comment is now found when its tracks are marked with CUES instead of
+ * numbering (tracklist_detector.js v_14). From the report on
+ * horstartsandmusicfestival/dave-huismans-at-dark-skies, whose 26 tracks read
+ * "(00)Gerd-Echo Jammz? (02)ID? (05)Tikkle-Bubbles (Club Mix) ...": the only split a comment
+ * had was the numbering, and it wants markers starting at 1 and counting up one by one, which
+ * minutes into a mix never do. Cues get their own split, on the one thing a cue list always
+ * does: it never runs backwards. That alone is weak, so everything still rests on the bar a
+ * comment tracklist has had all along - six tracks, half of them a real "Artist - Title" - and
+ * a marker has to be a number in brackets, "(00)" or "[05]", or a clock time carrying its
+ * colon, "1:02:30". A bare number stays the numbering's business. The cue is rewritten into
+ * the brackets MixesDB writes it in, digits untouched: "(00)Gerd" would otherwise reach the
+ * Tracklist Editor API as an artist called "(00)Gerd".
+ *
+ * The spaceless-separator second pass now runs over a split comment too, which is what turns
+ * that comment's "Gerd-Echo Jammz" into "Gerd - Echo Jammz" - the split had only just made
+ * lines out of the one line a comment is, and those lines need the same reading a
+ * description's do. "Artist-?" spaces out as well now: a title the writer does not know,
+ * written the way MixesDB writes an unknown one.
+ *
+ * And the "?" somebody hangs off the end of a track they are unsure about comes off
+ * ("Gerd - Echo Jammz?" -> "Gerd - Echo Jammz"), together with a trailing "…" - but only in a
+ * block that already writes "?" the MixesDB way somewhere, in place of an artist or a title
+ * ("?", "Will Hofbauer - ?"). Without such a mark nothing is touched, which is what leaves
+ * "Haddaway - What Is Love?" alone. Four new cases in tracklist_examples.js guard it; all 29
+ * pass.
+ *
+ * 2026.08.20.5
+ * Via the shared Page Creator (page_creator.js v_86, title_builder.js v_60, page_creator.css):
+ * sections 3, 5 and 7 of the reasoning panel each close with an "API call" link - the exact
+ * api.php URL that section's answers came out of, opening the raw answer in a new tab. Section
+ * 3 carries the one lookup request plus every per-chip page fetch the hints bar fired off its
+ * answers; 5 and 7 share the single recent-pages request, which brings their titles and their
+ * wikitext in one go. Built off the Amplify Series report: the hints bar reads "1 mix" where
+ * Category:Amplify Series holds 29 mix pages, because MixesDB's own category counter has
+ * drifted there, and writing that up for the wiki's maintainer meant rebuilding the request by
+ * hand. Every link is built off the SAME data object its request is sent with, so it opens
+ * what was really asked rather than an approximation of it.
+ *
+ * 2026.08.20.2
+ * The box under an open hints bar chip hangs 5px lower (page_creator.css), and chip and box
+ * are one line all the way round: the chip's left border runs straight down into the box's,
+ * and on the right the two are joined by an arc - the chip's border turns into the box's top
+ * border in a quarter circle instead of a square step. The box is held wide enough for that
+ * corner to have somewhere to land, so even the "no mix pages in this category yet" one keeps
+ * the shape.
+ *
+ * 2026.08.19.51
+ * The mix pages a hints bar chip folds out hang in a box attached UNDER the chip now
+ * (page_creator.css; page_creator.js v_85 only retells it in the comments). Chip and box are
+ * two connected parts: the chip keeps its pill, its width and its height to the pixel, so the
+ * chips behind it stand still for the first time in three cuts at this layout, and the box -
+ * aligned to the chip's left edge, never narrower than it, sharing one border line where they
+ * meet - takes no room in the bar: it lies over whatever follows until it is folded shut.
+ *
+ * 2026.08.19.50
+ * The hints bar folds ONE chip's mix pages out at a time (page_creator.js v_84): opening a
+ * chip closes the one that stood open before it. Two open lists left the chips around them
+ * hanging in mid-air beside a tall list - "2026" next to one, "Tracklist: none" next to the
+ * next - because a folded-out list is as wide as its longest mix title and as tall as ten of
+ * them, while the chips beside it are pills. One at a time keeps "Used categories" a line
+ * that can be read as one.
+ *
+ * 2026.08.19.47
+ * Via the shared Page Creator (page_creator.js v_81): the MixesDB modal now dims and blurs the
+ * whole window, SoundCloud's own menu bar at the top of the page included. A track page has
+ * lived in a frame of its own since the ~Aug 2026 redesign and the overlay stopped where that
+ * frame stops, so the menu bar stood above a dimmed page sharp and clickable - which read as
+ * the modal being a part of the page rather than something lying on top of it. The overlay now
+ * hangs in the page's top document, which also gives the box the full height of the window.
+ *
+ * 2026.08.19.38
+ * Via the shared Page Creator (page_creator.js v_73): the {{Player}} of the created page takes
+ * the shape the series uses. Where at least 90% of the entity's recent pages publish every
+ * episode on two platforms - {{Player|mode=mirrors}} with a line per platform, as Groove
+ * Podcast, HATE Podcast, RA Podcast and XLR8R Podcast do - the new page is written that way,
+ * with this player's URL on the line its platform stands on there (RA Podcast keeps Apple
+ * Podcasts first, so a SoundCloud URL goes on the second one) and the other line empty for the
+ * mirror. MixesDB answers an open slot with "No value for one of the players!" instead of a
+ * player, so a page cannot go out with the mirror quietly missing - reasoning section 7 says
+ * that too. Every other category keeps the plain one-URL player. A URL holding a "=" is now
+ * written as "|1=URL": unnumbered, MediaWiki reads the part in front of the "=" as a parameter
+ * name and the player renders "{{{1}}}".
+ *
+ * 2026.08.19.35
+ * Two fixes in the row's Page Creator (page_creator.js v_70). The lead artwork line is back on
+ * a series whose recent pages hold a live recording: reported on "GROOVE Podcast 514 - Black
+ * Rave Culture", where reasoning section 7 said "no 90% agreement - no image line" although
+ * every Groove Podcast episode page opens with its own artwork. Two of that category's 10
+ * newest pages are sets played at an event ("... @ Watergate Open Air, SAGE, Berlin (Groove
+ * Podcast 510, 2026-07-15)"), and such a page opens with the EVENT's flyer, named after the
+ * event - the artwork belongs to whatever the page records, the podcast for an episode and the
+ * event for a set played there. Those pages no longer vote on it: the count now reads 8 of 8,
+ * the page text starts with [[File:<title>.jpg|right|360px]] again, and section 7 says how many
+ * pages were left out. A venue's or an event's own category, where every page is such a
+ * recording, decides as before. The second fix is in the hints bar: a chip's fit score stays
+ * behind its "N mixes" count when the count is toggled open, instead of dropping under the
+ * folded-out mix pages.
+ *
+ * 2026.08.19.34
+ * Two words a suggested title used to lose (title_builder.js v_59). Reported on
+ * "Drumcomplexed Radio Show 311 | Drumcomplex", which came out as
+ * "2026-08-18 - Drumcomplex - DrumcomplexEd Radio 311" - an entity MixesDB does not have,
+ * while Category:Drumcomplexed Radio Show holds 311 mixes. The channel name "Drumcomplex" is
+ * the first eleven characters of "Drumcomplexed", and the Normal Case pass, which leaves the
+ * channel's own spelling standing wherever it turns up in the title, split the word there and
+ * re-cased the leftover "ed" into a word of its own. It now only keeps the name where the name
+ * really STANDS, never inside a longer word. The "Show" was lost on the other side: where the
+ * channel and the episode number stand in different bits of the title, the number is cut out of
+ * the bit carrying it, and the cut took the word in front of the number with it. That word
+ * belongs to the series name unless it only counts ("Slave To The Rhythm Episode 72"), which is
+ * the call the rest of the parser already makes.
+ *
+ * 2026.08.19.24
+ * Every looked-up chip in the hints bar's "Used categories" now carries a fit score
+ * (page_creator.js v_68, page_creator.css): how sure the row is that this is the right
+ * category for THIS page. Deliberately not the reasoning panel's section 3 percentage, which
+ * asks whether the wiki's answer is about the right NAME - by that measure the Amsterdam venue
+ * "Undercurrent" scores 95% on a mix that has nothing to do with it. The fit score starts there
+ * and takes off the two signals that say otherwise: the title numbering its entity while
+ * MixesDB knows a venue or event of that name, and a category whose newest page is years older
+ * than the mix. The tooltip lists what lowered it and closes with what it cannot see - whether
+ * the title picked the right words.
+ *
+ * 2026.08.19.23
+ * A category's pages are only read where they can say anything about THIS mix
+ * (page_creator.js v_67): not when the title numbers its entity while MixesDB knows that name
+ * as a venue or an event ("Undercurrent 5" is a series, the Amsterdam club "Undercurrent" is
+ * not), and not when the category's newest page is more than three years older than the mix.
+ * Reported on a 2026 upload whose page format, page text and shared categories had all been
+ * read off club nights from 2012-2015.
+ *
+ * What the entity's recent sibling pages have in common is no longer written onto the created
+ * page (page_creator.js v_67, page_creator.css). A category at least 90% of them share used to
+ * fill a style line - but that vote answers what those pages have in COMMON, not what this mix
+ * sounds like: Category:Undercurrent's newest pages carry Techno 5, House 3 and Tech House 2,
+ * so no style clears the bar, while "Amsterdam Dance Event" stands on all 10 and did, because
+ * the venue's MixesDB pages happen to be festival sets. It is now a HINT: a new "Hints:" row
+ * in the bar under "Used categories", each chip with a note behind it saying which pages it
+ * came off, and the same lines closing reasoning section 6. The page's two style rows stay
+ * empty for the editor.
+ *
+ * 2026.08.19.22
+ * The grey "Category:Promo Mix" note under the "Create" link is gone (page_creator.js v_66,
+ * page_creator.css). Since the hints bar's "Used categories" names every category the created
+ * page is filed under, "Promo Mix" among them, the note said the same thing a second time.
+ * What only it used to say - that the title leaves "(Promo Mix)" off because its own name
+ * already says it ("Summer 2026 Mix") - is now in the tooltip of the "Promo Mix" chip.
+ *
+ * 2026.08.19.17
+ * A place that names the ROOM of a venue now files the page under the VENUE (title_builder.js
+ * v_51, title_definitions.js v_35, page_creator.js v_62). Reported on "Live@Elsewhere Loft
+ * July", which came out as "... @ Elsewhere Loft" - a category MixesDB does not have and never
+ * will, while the club "Elsewhere" is one with 2 mixes on it. Behind the "@" the base name is
+ * now asked about NEXT TO the full one, and where the wiki answers empty about the name while
+ * knowing the base as a venue or an event, the room word comes off: "2026-07 - alexander:louis
+ * @ Elsewhere". Only behind the "@", where the title itself has said these words are the place,
+ * and only off a curated list of words naming a room, a floor or a piece of outdoor ground -
+ * "Club", "Haus", "Studio" and "Arena" are deliberately not on it, since a venue is named
+ * "... Club" far more often than it has a room called one. The room is offered back as a
+ * "Switch title" chip, because MixesDB does write it where it is worth naming
+ * ("2019-05-24 - Robert Hood @ Elsewhere Rooftop, NYC" is filed under Elsewhere all the same) -
+ * and the page files under the venue whichever of the two readings the title carries.
+ * The "Report" box has a new "Alternative title:" line for exactly that kind of second reading.
+ *
+ * 2026.08.19.16
+ * The hints bar's "Used categories" line now names EVERY category the created page is filed
+ * under (page_creator.js v_62, page_creator.css), in the order the page text writes them: the
+ * year, the artists, the show/venue/event - or "Promo Mix" - the styles and the "Tracklist:"
+ * filing. Only the artist and entity names are asked about on MixesDB and keep their green/red
+ * verdict; the rest are plain grey chips with no link and no mix count, since none of them is
+ * a name anyone could have spelled wrong. Reported after reading the line on a promo mix:
+ * "Promo Mix" goes into the page text, so leaving it out of the list read as if it did not.
+ *
+ * 2026.08.19.15
+ * The "Switch title:" line no longer offers a dropped "Part 2" (page_creator.js v_61,
+ * title_builder.js v_51, title_definitions.js v_35). The parts of one recording belong on ONE
+ * mix page - every file in the file details, a player each, the tracklist split into part
+ * chapters - so a title carrying the marker would only start a duplicate page, which is the
+ * very thing dropping the chunk prevents. The rule behind it now holds for the whole line: a
+ * chip may offer a different TITLE for this page, never a different page.
+ *
+ * 2026.08.19.14
+ * The "Switch title:" Live PA chip now also fires on the title's own "live" word
+ * (title_builder.js v_50). Reported on "Live@Elsewhere Loft July" and "Dualism Series #031 -
+ * alemiko *live", where the word was consumed on the way to the title - read as the " @ "
+ * joiner, or dropped as a trailing marker with no place to point at - and the signal went
+ * with it. A consumed word saying "live" now offers the "(Live PA)" reading as a chip, on
+ * live and studio titles alike (single artist only); it still never WRITES the marker, since
+ * a DJ set is announced the same way - which is also why "DJ Set"/"DJ Mix" markers from the
+ * same joiner list set nothing.
+ *
+ * 2026.08.19.13
+ * The hints bar offers the readings the build decided against as "Switch title:" chips
+ * (page_creator.js v_60, title_builder.js v_49, page_creator.css). Under "Used categories",
+ * one full title per line: a "(Live PA)" that was guessed from the description (or left off
+ * because the title read as a studio mix), a "(Promo Mix)" that was assumed (or deliberately
+ * not stacked onto the artist's-own-series guess), a dropped "Part N". A click swaps the chip
+ * with the title field - everything below follows as if it had been typed - and the same slot
+ * then offers the way back, so a second click undoes it. The chips are toggles DERIVED from
+ * the current field text, never stored strings, so they follow corrections typed into the
+ * title; switching the promo reading also switches the page's filing between Category:Promo
+ * Mix and the name itself, and the "Category:Promo Mix" note under "Create" now reads the
+ * field so it keeps up with that.
+ *
+ * 2026.08.19.12
+ * Festival sets whose title says so only with a "-" now come out as live recordings
+ * (title_builder.js v_48, title_definitions.js v_34, page_creator.js v_59). From two more
+ * reports on 3000Grad uploads. "Kollektiv Ost - 3000Grad Festival 3023" was filed as the
+ * channel's own Promo Mix: the event branch refuses a name that reads as a numbered series,
+ * and it counted the digits of "3000Grad" as the number - a number that COUNTS ends where the
+ * digits end, and these run on into letters, which is a spelling. MixesDB answering "event"
+ * about a name is now enough on its own as well, whatever separator the uploader typed, so an
+ * event whose name does not say what it is ("Fusion", "Melt") opens the same reading; behind
+ * an event only a country is kept as the second place, exactly as before.
+ * "Timboletti im Chapeau Club - 3000Grad Festival 3025 - Rosmarin und Lavendel -
+ * Undercover-Ambient" scored 10% and asked the wiki about the whole glued chain. A chunk long
+ * enough to be a CHAIN of names is now asked about in pieces as well as whole ("Timboletti" is
+ * a category, "Timboletti im Chapeau Club" never will be), split at "im", "in", "am", "at",
+ * "auf", "bei", "on", "und", "and" and "by". The place words among them also shorten the name,
+ * but only inside a set played at an event and only when the channel or MixesDB backs the part
+ * in front: there the place is settled by the event, so a corner of its site goes the way the
+ * set name and the genre already go. Both come out as
+ * "2023 - Kollektiv Ost @ 3000Grad Festival" and "2025 - Timboletti @ 3000Grad Festival".
+ *
+ * 2026.08.19.11
+ * A part an uploader wrapped in dashes is now a chunk of its own, and 3000Grad's joke year is
+ * read as the year it means (title_builder.js v_47, title_definitions.js v_33). From two
+ * reports on the ri0d channel, "RiOD. @ 3000Grad Festival -Rummelplatz 3026-" and
+ * "Ri0D. @ 3000Grad Festival 3025  -RUMMELPLATZ-": the whole tail behind the festival rode
+ * along as ONE name, so MixesDB was asked about "3000Grad Festival -Rummelplatz 3026" - which
+ * can only answer empty - and the page came out filed under that instead of under the
+ * festival. "-Words-" now separates the way a bracket does; the wrap here holds the festival's
+ * fairground corner, which is dropped like a stage. 3000Grad writes its editions a thousand
+ * years ahead ("3025" is 2025), so those digits now date the recording and leave the title
+ * wherever they stand. Both come out as "2026 - RiOD. @ 3000Grad Festival" and
+ * "2025 - Ri0D. @ 3000Grad Festival". A place group whose steps the uploader separated with a
+ * bracket or a "|" instead of a second "@" is joined with the "," MixesDB writes, rather than
+ * being flattened into one glued name ("@ Utopia Ritter Butzke Berlin").
+ *
+ * 2026.08.19.10
+ * A tracklist written "Artist-Title", with no spaces around the dash, is now found
+ * (tracklist_detector.js v_12). From the report on ri0d/ri0d-3000-grad-festival-3025-
+ * rummelplatz, whose 20 tracks read "Miret-Sabio Espejo (Original Mix)": not one of them was
+ * a track line to the detector, which wants a space on at least one side of the dash - the
+ * rule that keeps "Lo-Fi" and "Jerome Isma-Ae" from splitting into two tracks. Both cannot
+ * hold at once, so the spaceless dash gets a SECOND PASS: only when the rules found no
+ * tracklist anywhere are such lines written out to " - " and the whole detection run again,
+ * which leaves every description that already yields one untouched. It stays off prose by
+ * three guards - only a line carrying neither a spaced dash nor a slash is rewritten, the
+ * letter behind the dash has to be a CAPITAL (a compound word is lowercase behind its hyphen,
+ * a date like "2026-08-19" is digits), and four such lines have to exist before the pass runs
+ * at all. A lowercase artist ("stbr-Reservoir") is the accepted price.
+ *
+ * And a credit the uploader WRAPPED onto a line of its own no longer cuts the tracklist up:
+ * the same description has "Oliver Koletzki," on one line and "Niko Schwind, Sidartha
+ * Siliceo-Satinka (Kermesse Remix)" on the next, and twice over. Such a line is no candidate
+ * line, so the run ended at each of them and 20 tracks would have arrived as three short runs
+ * - or as three chapters named after the leftovers. A line ending in a comma that carries no
+ * track of its own is now glued onto the line below before any run is read; a track whose
+ * title really ends in a comma keeps its own row.
+ *
+ * 2026.08.19.8
+ * The MixesDB modal opens again (page_creator.css). The blurred backdrop of .7 came with
+ * "opacity: 0; visibility: hidden" and a transition meant to be flipped by a class - but
+ * nothing adds one, and the overlay is built fresh on every open and thrown away on close,
+ * so it has no closed state to transition out of: it opened fully invisible, which looked
+ * like the chips' category links doing nothing. The fade is now an animation that runs on
+ * insertion, which is what an element with no resting state needs. Blur and tint unchanged.
+ *
+ * 2026.08.19.7
+ * The real cause of the dead first click on a chip's "N mixes" after a title edit, which
+ * .6 only guessed at (page_creator.js v_58): the mousedown takes the focus out of the
+ * title field, the field fires "change" because it was typed in, the hints bar re-renders
+ * on that and throws away the very element the mouse went down on - so the browser
+ * dispatched no click event at all. That is the blink, and it is why only a second click
+ * (field already blurred, no "change" left to fire) opened the list. The bar now builds
+ * its content detached and swaps it in only where the markup really differs; measured on
+ * SoundCloud, the "change" after a title edit produces byte-identical markup, so the nodes
+ * - and any click in progress on one of them - are left alone.
+ *
+ * The "there is more above" fade over the top of an open list is gone again
+ * (page_creator.css).
+ *
+ * 2026.08.19.6
+ * The hints bar's "N mixes" toggle got three fixes (page_creator.js v_57,
+ * page_creator.css). The recent mix pages now stand the way a MixesDB category page lists
+ * them, oldest at the top and the newest at the bottom, instead of upside down. Where the
+ * category holds more pages than the ten shown, the top of the list fades
+ * into the panel's background - the ones it does not show are the older ones, so "there
+ * is more" belongs above its first line. And the count is a toggle from the moment it
+ * appears: a name edited into the title field is answered a moment before its pages are,
+ * and until now that first click did nothing, so it took a second one to open the list.
+ * The click now opens the chip on a spinner and fetches the pages itself
+ * (mdbPageCreator_usedCatFetchRecent, back for that one case).
+ *
+ * 2026.08.19.1
+ * The suggested title now spells a name the way its MixesDB category does even when no
+ * chunk carries the name on its own: the first parse's artists and entity category join
+ * the lookup candidates (page_creator.js v_53, mdbPageCreator_addParsedNames). Reported
+ * on "RA.971 DJ MARIA." - the whole title is ONE chunk, so the lookup only ever asked a
+ * name that cannot exist, and the title said "DJ Maria." while the wiki files her 8 mixes
+ * under "Category:DJ MARIA.". Category names are the last word on spelling. The new
+ * candidates are appended last (an over-full list drops them first), deduped against the
+ * chunk candidates, origin "first parse" in the reasoning panel's section 3.
+ *
+ * 2026.08.18.14
+ * The reasoning panel's section headings now stand in a column of their own
+ * (page_creator.css). The five headings differ by more than ten characters, and with the
+ * grey hint packed straight behind each of them every section started its hint at a
+ * different x, so the panel read as five unrelated blocks rather than one list. The
+ * heading column is capped, not fixed: a narrow player column shrinks it instead of
+ * pushing the hint out of the panel. The headings are no longer white either - each one
+ * takes its section's accent, and the raw-material sections 1 and 3 are back on the blue
+ * they had before .13 rather than the grey that made them look switched off. A section
+ * now states its colour once as three custom properties and bar, heading and count bubble
+ * are painted off them.
+ *
+ * 2026.08.18.13
+ * The reasoning panel's sections are renumbered 1..5 as shown - the 2a/2b pair is gone - and
+ * renamed for what they hold: "Title chunks for category lookup", "Title fixed and cleaned",
+ * "Category candidate lookups on MixesDB", "Title refined after lookup learnings",
+ * "Categories for the mix page" (page_creator.js v_47, page_creator.css). Colours now follow
+ * STATE, not type: grey while something is only a candidate (section 1's chunks and the
+ * channel chip included), red for what was ignored, green only for what ends up used - so
+ * green no longer means one thing in 3 and another under 2. The two build sections close
+ * with the built title as ONE chip instead of re-split chunks: "Title candidate:" in grey
+ * before the lookup, "Final title:" in green after it - which also retires the re-split
+ * that could disagree with section 1 (the glued "Dark Skies, Horst Festival 2026" chip of
+ * the .12 report). The section accents follow the same states - the copy button's orange
+ * for the two title builds, grey for 1/3, green for 5 - and "no category of this name yet"
+ * in 5 drops its unique yellow for the standard grey.
+ *
+ * 2026.08.18.12
+ * A place group an uploader wrote the other way round is now read as two names
+ * (title_builder.js v_45). From the report on "Dave Huismans at Dark Skies, Horst Festival
+ * 2026": the suggested title was already right, but MixesDB was asked about the glued
+ * "Dark Skies, Horst Festival", which can only answer empty, while "Horst Festival" itself
+ * was never asked - and the page came out filed under "Dark Skies", the stage, because a
+ * live title is filed under the FIRST place of its group. A comma with an EVENT name behind
+ * it now separates, so both are asked on their own, and the part naming the event is the
+ * entity category wherever it stands in the group. Only an event word overrules the order:
+ * "@ Wire Club, Leeds" and "@ 3000Grad Festival, Utopia" are unchanged, an artist list
+ * ("ANA, Johnny D, DJ Koze") stays one name group, and no suggested title changes.
+ *
+ * 2026.08.18.11
+ * A tracklist an uploader wrote as a bulleted list instead of a numbered one now opens
+ * (tracklist_detector.js v_11). From the report on
+ * frida_carlos/frida_carlos_3000grad_festival_3026_schiff_ahoi, whose 32 tracks are each
+ * written "- Artist - Title": clicking the "Tracklist" headline did nothing at all. The
+ * Tracklist Editor API reads a leading hyphen as "this line continues the one above" and had
+ * glued all 32 into one row, which at that length comes back as an empty text with "No
+ * tracklist received." - and an empty answer means no box, so the headline looked like a dead
+ * link. The bullet is now taken off every line before the block is handed over, hyphen, en
+ * dash, em dash, "*", "•", "·", ">", "~", "=" and "|" alike - the ones the API does not strip
+ * itself otherwise survive into the artist name. A blank behind the bullet is required, so an
+ * artist called "-Ms-" keeps its hyphen.
+ *
+ * 2026.08.18.10
+ * The presenter rule now reads a series WORD, not only a number (title_builder.js v_44,
+ * title_definitions.js v_32). From the report on "Mat.Theo present UNCODED BIRTHDAY
+ * Radioshow (JUNE 26)", which came out inside out - the whole leftover as the artist,
+ * stamp and caps included: "Radioshow" behind "present" says the channel presents its own
+ * show as loudly as an episode number does, so the channel is the artist and the series
+ * the entity. The bracketed "(JUNE 26)" is the edition's month-year stamp and goes - the
+ * date group already carries when the mix is from, and a date belongs in no category name.
+ * Normal Case now also reaches a shouted name whose only lowercase is a series word:
+ * "UNCODED BIRTHDAY Radioshow" re-cases to "Uncoded Birthday Radioshow" with the word kept
+ * as typed ("E-L-E-C-T-R-O MIx" still comes back whole). And "presents"/"pres." separates
+ * the chunk split - presenter and presented are two names, asked about on their own.
+ *
+ * 2026.08.18.3
+ * Third bug out of the .28 round, same reported page (page_creator.js v_43): section 3
+ * dropped every candidate the wiki answered EMPTY for - "MNMT Recordings" and
+ * "S.U.N Festival" were asked and appeared in no column, while section 2 still showed their
+ * chips. The recorded role is a plain string ("artist"/"entity") and the panel read .artist
+ * off it as if it were an object, so only a name with an answer ever rendered, pulled in by
+ * the answer's own type. And the step details (section 2) lose their monospace
+ * (page_creator.css): a detail is as often a prose sentence ("the upload date stands in:
+ * ...") as a quoted title, and code styling on prose read as a style break.
+ *
+ * 2026.08.18.2
+ * Section 4 of the reasoning panel now says WHY each name got its slot, in one line above the
+ * lookup answer (title_builder.js v_38, page_creator.js v_42, page_creator.css): "picked as
+ * the entity: "S.U.N Festival" carries an event word, so the title reads as a set PLAYED at
+ * it - it becomes the place behind the " @ ", and the channel is not used as a show on top of
+ * that". From the report on "MNMT Recordings : Adjust (BE) @ S.U.N Festival - Hungary", where
+ * the panel showed a festival the wiki has never heard of as the entity while MONUMENT, a
+ * podcast with 425 mixes, sat unused - and said nothing about what decided it. The sentence is
+ * written by the branch that decided (mdbTitle_trace.picks, filled at mdbTitle_result's ten
+ * call sites), never re-derived in the panel.
+ * Also fixed while there: section 3 painted EVERY chip green. The role argument added in
+ * .28 shifted the row renderer's isCat and overruledBy a slot along, so "artist" arrived as
+ * "did this become a category" - which is exactly what made the reported page unreadable.
+ *
+ * 2026.08.18.1
+ * The reasoning panel's per-answer percentage (title_builder.js v_38) no longer leans on the
+ * mix count: a category with 500 mixes can be the wrong reading of the words just as easily
+ * as an empty one, so the count only says how well the wiki knows the name. The ladder is
+ * -10 for a category holding one mix or none and -5 for two to four; the -12 and -5 brackets
+ * below 10 and 25 mixes are gone. "Adjust" found as an artist with a single mix reads 70%
+ * instead of 45%. What a name IS (spelling, several readings at once, a channel rule saying
+ * otherwise, a single word the wiki barely knows) still decides the rest.
+ *
+ * 2026.08.17.28
+ * Same report, second round. Section 3 now sorts its CHIPS into the two columns, decided
+ * from the title's shape BEFORE the lookup fires (mdbTitle_candidateRoles, title_builder.js
+ * v_37): names in front of the "@" ask as the artist; series-looking names ("recordings"
+ * joined the series words for it), everything behind the "@" and a curated show name as the
+ * entity; the channel as both. Within a column only that role's answers render, an answer
+ * of an unexpected type still pulls the chip in, and "no category of this name" shows only
+ * in the name's own column - never as an artist-column line for a series or a place
+ * (page_creator.js v_41, page_creator.css).
+ * "Hungary", the country behind the event, now stays in the title as the place group's
+ * second part ("@ S.U.N Festival, Hungary" - the way the venue branch keeps its city) and
+ * is not looked up at all: a country is never a category, and the 10-name limit is real.
+ * Also found while rendering the panel against fixtures: section 4 died on any page whose
+ * artist or entity IS a known category - the row handed a bare match to
+ * mdbPageCreator_reasoningMatch, which had grown the per-answer-scoring signature, so
+ * sections 1-3 painted and section 4 never appeared.
+ *
+ * 2026.08.17.27
+ * From the "MNMT Recordings : Adjust (BE) @ S.U.N Festival - Hungary" report
+ * (title_definitions.js v_28, title_builder.js v_36): a bracket holding nothing but a
+ * country says where the artist is FROM and is dropped even on a live title - as a lone
+ * code, which the unbracketed place-list rule deliberately never matches - as long as it
+ * stands in front of the "@"; it is no chunk and no lookup candidate. And an "@" glued
+ * inside the event bit now names the artist ("Adjust @ S.U.N Festival"), instead of the
+ * first bit winning positionally - which had put the series "MNMT Recordings" into the
+ * artist slot while the wiki knew Adjust as an artist and Monument only as a podcast.
+ * The reasoning panel's lookup section (page_creator.js v_40, page_creator.css) is now a
+ * table with two answer columns - "Artist category candidates" and "Entity category
+ * candidates": an answer lands under the role its type can play, a name known as both
+ * shows one answer per column, an empty side reads "-", and a name with no category spans
+ * both. A podcast answer standing in one flat list read as if it backed an artist.
+ *
+ * 2026.08.17.24
+ * The reasoning panel's sections 1 and 2 split the title the same way again
+ * (title_builder.js v_34): the "@" pass sat in mdbTitle_titleChunks, one level above the
+ * splitter the panel calls for its "Left for the parser" chips, so section 2 showed
+ * "Green Lake Project @ 3000Grad Festival 3021" as ONE chip where section 1 showed two. Moved
+ * into mdbTitle_traceChunks, which both go through - a chip list that disagrees with the
+ * chunks reads like a re-joined chunk and sends a report after a parse step that never ran.
+ * Display only: the chunks, the lookups and the suggested title are unchanged, all 113
+ * examples pass. What still differs is real cleanup, not the split - section 2 quotes the
+ * title as it stands after the cleanup, where a live title's place groups are already joined
+ * ("3000Grad Festival, Utopia").
+ *
+ * 2026.08.17.23
+ * The one-" @ " rule now also holds at the builder's exit (title_builder.js v_33,
+ * title_definitions.js v_27): the event and venue branches compose "<artist bit> @ <place>"
+ * AFTER the title-wide rewrite, so an artist bit already carrying an "@" put a second one
+ * into the title ("Kernel Existence @ Utopia | Ritter Butzke | Berlin" composed
+ * "... @ Utopia @ Ritter Butzke, Berlin" once the wiki knew the venue). Enforced in
+ * mdbTitle_result, where every branch converges - "@ Utopia, Ritter Butzke, Berlin" is also
+ * exactly how MixesDB writes a party at a venue in a city. The require params are bumped so
+ * a Tampermonkey that cached the previous ?v_32 before the push reached the CDN refetches.
+ *
+ * 2026.08.17.10
+ * From the "Kernel Existence - live@3000Grad Festival @Utopia 2021" report
+ * (title_definitions.js v_26, title_builder.js v_32): a MixesDB title carries " @ " once -
+ * every "@" after the first folds into the place group as its "," ("@ 3000Grad Festival,
+ * Utopia"), the entity category is the FIRST place alone, and a year trailing that place
+ * list is the gig year: it wins over the upload year and leaves the title, since the date
+ * group carries it from then on. The chunk split runs the joiners first and separates at
+ * every "@", so a live marker is no chunk and each place is looked up on its own
+ * ("Kernel Existence | 3000Grad Festival | Utopia").
+ * New: "Live PA", the one how-it-was-played marker MixesDB writes. Said by the title - or
+ * by the description of a live recording - it comes out as "(Live PA)" behind the artist's
+ * name, while the artist category stays the bare name. A bare "live"/"live@" still marks
+ * nothing.
+ *
+ * 2026.08.17.3
+ * The shared chunk split (mdbTitle_titleChunks, title_builder.js v_26) now removes what the
+ * parse removes: a bracket crediting the artist's labels ("Tooker (SONARA / Crosstown
+ * Rebels)") and a place list saying where the artist is from. Those names showed up as
+ * chunks and were sent to the mdbnames lookup although the parse had already dropped them -
+ * asking the wiki about a record label wasted the request. The reasoning panel
+ * (page_creator.js v_25, page_creator.css) shows them in red on a "Removed:" line
+ * with the reason spelled out, so a reporter sees the drop was on purpose. The description
+ * (the labels a tracklist credits) now reaches the split too, so a credited label in a
+ * bracket is no lookup candidate either.
+ * The panel's "Fixed and cleaned" section also names the channel -> show mappings, whose
+ * work was invisible (nothing in the title text changes): a channel on the known-shows list
+ * (mdbTitleUsernameConversions) as "Resident Advisor -> RA Podcast", and a show the channel
+ * and the title name together (mdbTitleChannelSeriesConversions) as '"DJ MIX" on the channel
+ * Dance TV -> Dance TV DJ Mix'.
+ * The removed chips lost their strikethrough (red alone says it), the cleanup section no
+ * longer repeats what that "Removed:" line already names, and the channel -> show mapping
+ * steps draw the mapping as chips: the channel in the blue of the chunk section's channel
+ * chip, the show it became in green.
+ *
+ * 2026.08.16.15
+ * The "Report" box got a reasoning panel above the textarea (shared/page_creator/:
+ * page_creator.js v_24, title_builder.js v_23, page_creator.css): four sections showing the
+ * chunks the player title split into, what the cleanup fixed and removed (typos, decoration,
+ * label credits, the date), which names were looked up via action=mdbnames and what the wiki
+ * knows them as, and the categories the created page would be filed under - each annotated
+ * from the lookup cache (known artist with mix count vs. "no category of this name yet").
+ * The chunks are THE shared split (mdbTitle_titleChunks): typos/decoration out first,
+ * brackets read as separators and the parser's guarded series-"by" split included - so
+ * "Guestroom 779 by Sascha Sibler" shows (and looks up) both halves, and a venue in
+ * brackets becomes a candidate the second build pass can recognise.
+ * Editing the title re-renders the panel after a short pause and looks the new names up
+ * first (cache-aware, one request at most). Dark surface like the loading skeleton (both
+ * sites are dark-themed; grey-on-white was hard to read next to them), one accent colour
+ * per section, semantic tones on the notes (green = confirmed, amber = check this, red =
+ * request died). Opened before every lookup answered, the panel shows pulsing stand-in
+ * rows of its own and swaps to the real content once everything is in.
+ *
+ * 2026.08.16.7
+ * The red duration of a too-short track is a plain label now, not a button: short tracks are
+ * never used on MixesDB, so the file details it used to open are wikitext nobody can use.
+ * mdb-toggle/data-toggleid stay off it (the click handler in global.js binds by that class),
+ * the file details block is not built at all, the tooltip only explains the red, and the
+ * cursor and hover styles stop promising a click (script.css).
+ *
+ * 2026.08.16.6
+ * A track under MixesDB's 20 min minimum no longer loads the toolkit at all - its MixesDB
+ * usage check could only ever answer "not used", so that request is saved along with the
+ * Page Creator row and the tracklist box, which were already refused for such tracks. The
+ * duration comes out of the ONE SC API answer the buttons are built from (new "Toolkit
+ * duration gate" section: getToolkit() is parked and released - or dropped - by that
+ * answer; no second SC API call). The red #mdb-fileInfo duration button (light red fill,
+ * MUI error text color, explaining tooltip) is what tells the reader the missing pieces
+ * are intended, not broken. A dead SC API cannot take the toolkit down with it: a parked
+ * call is released ungated after 10s, and an answer without a usable duration releases
+ * right away - only a positively known short duration drops the toolkit. The loading
+ * skeleton is told no toolkit verdict is coming (new mdbSkeleton_noToolkit() in
+ * page_creator.js v_23), so it reveals on the settle window instead of its 6s cap.
+ *
+ * 2026.08.16.4
+ * The loading skeleton moved to shared/page_creator/ (mdbSkeleton_* in page_creator.js,
+ * styles in page_creator.css) so TrackId.net gets it too: scSkeleton_* left script.funcs.js
+ * and the skeleton CSS left script.css. This script now passes its specifics to
+ * mdbSkeleton_show(): the wrapper selector, the stand-in rows (head/dates/buttons/toolkit)
+ * and an extraReady() check for the SC API side (buttons built, or the failure note).
+ * Behaviour on SoundCloud is unchanged, including the tuned 230px height (now the shared
+ * default); the debug flag was renamed window.scSkeleton_enabled ->
+ * window.mdbSkeleton_enabled.
+ *
+ * 2026.08.16.3
+ * Skeleton follow-ups. Fixed 320px height instead of the stand-ins' natural height, which
+ * rendered clearly taller than the typical content: 320px is the height of a page WITHOUT
+ * a tracklist box (most descriptions hold none), so the tracklist stand-in is gone - a page
+ * that does get one grows in the one reveal step. Flex column, the fixed rows keep their
+ * size and the toolkit stand-in absorbs the remainder, so nothing is clipped mid-bar.
+ * New window.scSkeleton_enabled option in the debug settings block (default true): with it
+ * off the pieces pop in one by one as before, but the readiness watch still runs, and the
+ * "everything loaded Xms after the wrapper was created" log line is written with identical
+ * wording in both modes, so skeleton on/off can be compared log against log.
+ *
+ * 2026.08.16.2
+ * New-layout track pages no longer build up piece by piece ("very flashy"): the moment
+ * #mdb-sc-trackExtras is created it shows a dark grey skeleton - pulsing bars shaped like
+ * the content to come (headline, artwork bar, dates, button pills, toolkit, tracklist box) -
+ * while the real elements assemble hidden underneath (display:none is safe there: the one
+ * thing that measures itself, the tracklist textarea, sizes via its rows attribute counted
+ * from the text). One reveal swaps skeleton for content: SC API buttons and the toolkit
+ * verdict present plus 600ms of wrapper quiet - which lets the Page Creator row and a
+ * description tracklist slip in - or a 6s cap that shows whatever arrived. The API failure
+ * note counts as the API being done, so a dead API does not hold the page; a
+ * comments-fetched tracklist may still pop in after the reveal (rare, sits at the bottom).
+ * Re-shows when SoundCloud's React wipes the wrapper and the Track header handler recreates
+ * it. scSkeleton_* in script.funcs.js, styles in script.css; old layout untouched.
+ *
+ * 2026.08.15.6
+ * formatScDate() and scArtworkOriginalUrl() moved from script.funcs.js to api_funcs.js:
+ * TrackId.net now feeds the Page Creator from the SC track API on its audiostream pages and
+ * needs both, and api_funcs.js is the file every script reading the SC API already @requires
+ * (RA, 1001 Tracklists, Player Checker) - pulling in script.funcs.js instead would have
+ * dragged this page's DOM handlers along. No behaviour change on SoundCloud; formatScDate()
+ * additionally survives a null release_date now, where the old typeof check only caught
+ * undefined and null.replace() would have taken the whole API success handler down.
+ *
+ * 2026.08.15.4
+ * soulheavenrecords/soul-heaven-presents-004-natasha-kitty-katt holds TWO tracklists - the
+ * resident's hour under "First Hour - Ollie Blackmore:" and the guest's under "Guest Mix -
+ * Natasha Kitty Katt" - and the detector took the first and silently dropped the second.
+ * MixesDB writes such a mix as chapters (Help:Tracklists#Chapters), and the detector now does
+ * too: when more than one run passes and every one has a headline above it, all of them are
+ * taken, each block under a ";Chapter" line with a blank line between the blocks. The headline
+ * is stripped down to the name the chapter is filed under - "Guest Mix" / "Hour 1" / "First
+ * Hour" prefixes and a trailing ":" go, in whatever mixture of blanks, "-" and ":" they were
+ * typed - and a headline glued straight onto its tracks (no blank line, so "Hour 1 - DJ A:"
+ * even reads as a track line and joins the run) is peeled off the front when the rest still
+ * passes on its own. All or nothing: a run without a headline, a bare "Tracklist:" heading or
+ * runs that disagree on being numbered mean no chapters and the longest run wins as before.
+ * The Tracklist Editor API keeps the ";" lines and numbers each chapter's tracks on their own -
+ * verified against it. 22 detector examples now, all passing.
+ *
+ * 2026.08.13.13
+ * The tracklist of whose-these-records/whose-these-cast-02-by-mar-1 came back orange with "These
+ * tracks seem to miss the artist names" listing every track: its uploader splits artist and title
+ * with an EN dash, and the Tracklist Editor API reads the hyphen and the em dash but not that one,
+ * so each line arrived as one nameless track carrying the whole line as its artist. Not the
+ * "standard" type going missing - that is what has always been passed, here as everywhere else.
+ * The detector now writes the separator as " - " before the API sees it, whatever dash and
+ * whatever spacing it was typed with ("Artist –Title", "Artist -- Title"), the same answer the
+ * slash of .10 got and for the same reason: the API knows one separator.
+ * Only the FIRST separator of a line moves - a dash further right is part of the title - and the
+ * numbering and a leading cue are skipped over, so a "12 – Artist – Title" is split by the second
+ * dash and not by the one that numbers it. 20 detector examples now, all passing.
+ *
+ * 2026.08.13.10
+ * "No tracklist detected" on anjaschneider/clubroom-431-with-anja: the uploader splits artist and
+ * title with a SLASH ("Ackermann / Pure"), and the detector only ever knew the dash - so not one
+ * line of that block read as a track and no run formed at all. A slash counts as a separator now,
+ * with "//", "\" and "\\" as the same thing, and the block is rewritten to " - " before the
+ * Tracklist Editor API sees it: the API knows no other separator and would take such a line for
+ * one nameless track carrying the whole line as its artist.
+ * A slash needs a space on BOTH sides to count, where the dash needs only one - it lives inside
+ * words and addresses all day long ("AC/DC", "w/", "music.beepd.co/card/anjaschneider"), and a
+ * one-sided rule would read half the prose of a description as a track line.
+ * Only the FIRST separator on a line splits it, so "traKKman / Jack 2 The Groove - Sound Factory
+ * Bar mix" keeps the dash in its title, and only a block that is MOSTLY slash lines is rewritten:
+ * a lone "Artist / Other Artist - Title" among dashes is a collaboration, not a separator.
+ * 19 detector examples now, all passing.
+ *
+ * 2026.08.10.17
+ * ROOT CAUSE FOUND for "no tracklist detected" on sultanshepard/dialekt-radio-339: the uploader
+ * wrote every track as its own paragraph, so the description holds a BLANK LINE between every
+ * pair of tracks - and a blank line ended a run, which left twelve runs of one line each and no
+ * tracklist. Blank lines no longer end a run by themselves: they end it unless the numbering
+ * steps over them ("11." followed by "12." is one list however many blank lines sit between).
+ * That the number has to go UP is what keeps the old case working - in the Hard Times
+ * description a "6 Decks - 2 Mixers" line sits one blank line above a tracklist starting at
+ * "01.", and 1 does not follow 6, so that blank still ends the run. Unnumbered tracklists are
+ * unaffected: without numbering there is nothing to step over, so a blank always ends the run
+ * there, which is what keeps the social links under a description out of it.
+ * The same track page writes its cues BEHIND the track ("Artist - Title 00:52:09"), two of them
+ * with a chapter name hung off the cue. Sent as-is, the Tracklist Editor keeps the timestamp
+ * glued to the title and turns "- CLASSIC OF THE WEEK" into a label of its own, so the block is
+ * now tidied first: the cue moves in front, where MixesDB writes cues, and what trailed it
+ * becomes a bold note in front of the artist -
+ * "[00:56:00] '''CLASSIC OF THE WEEK:''' Dennis Ferrer & Jerome Sydenham - Sandcastles (...)".
+ * Only done when at least half the lines of the block carry such a cue: one title ending in
+ * something clock-shaped ("Sandcastles 9:11") is not a pattern, and rewriting it would invent a
+ * timestamp nobody wrote.
+ * 16 detector examples now, all passing.
+ *
+ * 2026.08.10.13
+ * The tracklist box is now behind a headline that toggles it, and it is no longer built at all
+ * until there is a reason to. Detecting a tracklist is free (a regex over text we already have);
+ * formatting it costs a request to the Tracklist Editor API. So on a mix that is ALREADY on
+ * MixesDB the API is not asked at all - only the headline goes up, and the first click on it
+ * pays for the box; every click after that just shows and hides it. Nothing on such a page needs
+ * the tracklist by itself (it is there to be compared with the one the wiki has), and most of
+ * those clicks never happen. A mix with no page yet is unchanged: the box is what the "Create"
+ * link carries, so it is formatted and opened right away. That decision needs the toolkit's
+ * verdict, which arrives after the toolkit itself, so the creator now waits for both - and makes
+ * the decision once, so a SoundCloud re-render cannot force a box the reader closed back open.
+ * The headline is "Tracklist (from description)" in grey: the word alone is the <strong> and the
+ * toggle (pointer, caret), the bracket alone is an <abbr> carrying the "where this came from"
+ * tooltip. A tooltip on the word would have fought the click.
+ * New detector example, deep-space-helsinki/july_2026: labels written behind the title with the
+ * SAME " - " that separates the artist, so every line carries two dashes and none of them is the
+ * one that matters. It passed unchanged - 15 examples now, all passing.
+ *
+ * 2026.08.10.12
+ * Three fixes to the tracklist box of .11, all reported off the live page:
+ * ROOT CAUSE FOUND for "the textarea floats over the page": fixTLbox() marked a finished box
+ * with a class named plainly "fixed", and SoundCloud's Material layout ships utility CSS where
+ * .fixed means "position: fixed" - so the box left the flow and was laid over the description.
+ * The Lot Radio had hit the same collision and worked around it locally (its
+ * keepTheLotRadioTextareaInFlow()); this fixes it at the source, where the class is now
+ * "mdb-tlBox-fixed" like every other class we add. page_creator.css states "position: static
+ * !important" on the box on top of that, since it sits in markup we do not own on every site.
+ * The box now goes BELOW the toolkit instead of above it - after #mdb-toolkit, which is above
+ * the description in both layouts. The toolkit arrives from a MixesDB API call of its own, so
+ * the creator polls for it rather than expecting it to be there when the tracklist is.
+ * The feedback box got its colour flattened to one grey: page_creator.css set a colour on
+ * "#mdb-pageCreator-tracklist #tlEditor-feedback", and two IDs beat the one ID and one class of
+ * tracklistEditor_copy.css' ".tlEditor-feedback-complete #tlEditor-feedback" - so green for
+ * complete, orange for incomplete and red for a warning all lost to it. That colour IS the
+ * message; the rule states no colour at all now.
+ * The headline is plain "Tracklist" again and only says where it came from when that is the
+ * surprising answer ("Tracklist (from a comment)") - naming the description on every track is
+ * noise that drowns out the one case worth a second look.
+ *
+ * 2026.08.10.11
+ * The tracklist an uploader wrote into the description is no longer retyped by hand: it is
+ * found, formatted and carried into the created mix page. New
+ * shared/page_creator/tracklist_detector.js reads a tracklist out of any description text
+ * (pure text in, text out - no DOM, no network, so it is testable and every site script can use
+ * it), MixesDB's Tracklist Editor API turns it into wiki syntax with type "standard", and it
+ * lands in the shared #tlEditor box above SoundCloud's description. What is in that box at the
+ * moment "Create" is clicked is what goes onto the page - the box is asked of the API once more
+ * on the way into the click, and only the FEEDBACK of that answer is used (the colour and the
+ * [[Category:Tracklist: complete|incomplete|none]]); the text stays the editor's.
+ * A tracklist is recognized as a RUN of neighbouring lines rather than as single lines that
+ * look like a track - "6 Decks - 2 Mixers" is everywhere, four of them in a row are not - and
+ * numbered runs additionally have to count upwards, which is what keeps a stray line sitting on
+ * top of a tracklist out of it. When the description has none, the track's comments are fetched
+ * (getScTrackComments(), one page of 200) and searched for a WHOLE numbered tracklist starting
+ * at 1: single track IDs, which is what nearly every comment naming an "Artist - Title" is,
+ * must never be taken. 14 examples in tracklist_examples.js guard all of it, run with
+ * "deno run --allow-read shared/page_creator/tracklist_examples_test.js".
+ * global.js: fixTLbox() takes a third argument to skip the select() - a box that appears on its
+ * own next to a player must not take the caret and scroll the page to itself - and no longer
+ * stacks a second feedback box when it is re-run; apiTracklist() returns an empty result
+ * instead of throwing when the API answers with something that is not JSON (an empty tracklist
+ * answers with an empty body).
+ *
+ * 2026.08.10.10
+ * The mix page title row is now the shared "MixesDB Page Creator" in
+ * shared/page_creator/ - renamed after the "Create" link, since the title has long stopped
+ * being all it hands to the wiki (file details, {{Player}}, categories, artwork URL). Nothing
+ * about it was SoundCloud-specific except where the values come from, so it moved out whole:
+ * title_definitions.js (the word lists, its sc* globals renamed to mdbTitle*),
+ * title_builder.js (buildMixesdbTitle() and the mdbTitle_* parser, lifted out of
+ * script.funcs.js), page_creator.js (the row, mdbPageCreator_*) and page_creator.css (lifted
+ * out of script.css). The ids went with it: #mdb-mixesdbTitle-wrapper -> #mdb-pageCreator and
+ * so on, and window.mdbTitle_showForUsedPlayers -> window.mdbPageCreator_showForUsedPlayers.
+ * A site script now hands over one object - title, channel, createdAt and where to put the row
+ * - and keeps its own quirks on its own side (this file applies scArtworkOriginalUrl() before
+ * passing the artwork URL along). target is given as a SELECTOR STRING so it survives
+ * SoundCloud's re-renders, which a captured node would not. Behaviour is unchanged; all 47
+ * title examples still pass.
+ *
+ * 2026.08.09.4
+ * Extends .1 to EVERY copy button behind an input, not just the ones holding a URL - the
+ * button behind the created MixesDB title dragged nothing at all. All of them are now an <a>
+ * (draggable="true" plus a dragstart that writes the input's current value), and only a URL
+ * additionally gets an href, so a title drags as plain text while a URL still drags as a
+ * link. <button> cannot do this job: it is a form control, and Firefox refuses to start a
+ * drag on those whatever draggable says - it would have looked fine in Chrome and silently
+ * done nothing for Firefox users. The hrefless <a> gets role="button", tabindex="0" and
+ * Enter/Space handling, since an <a> without href is neither focusable nor key-activatable.
+ * Copy sources that are not inputs (RA venue/artist names) stay <button>s - their text sits
+ * in the page and can be dragged directly.
+ *
+ * 2026.08.09.2
+ * Debugging the title creator meant never seeing what it builds for a player that IS on
+ * MixesDB - exactly the cases where the correct title is already known and the suggestion
+ * could be judged. New "Debug settings" block at the top of this file with
+ * window.mdbTitle_showForUsedPlayers (off by default): with it on, the title row is added
+ * for used players too, marked "used" in MixesDB orange and without the "Create" link, which
+ * would only start a duplicate page. Everything else is unchanged, including the 20 min
+ * minimum duration - a track too short for MixesDB still gets no suggestion.
+ *
+ * 2026.08.09.1
+ * Copy buttons next to URL inputs (artwork URL, toolkit Embed URL) are now real <a href>
+ * elements instead of <button>s, so the URL can be dragged out of the page into another
+ * window/app - a <button> cannot be dragged at all. A plain click still copies and never
+ * navigates; only an explicit modifier click (cmd/ctrl/shift) opens the link. The href and
+ * the drag payload are re-read from the input on every interaction, so an edited or
+ * rewritten URL (e.g. the artwork extension fix) is always what gets dragged. Inputs whose
+ * value is not an http(s) URL - the MixesDB page title input - stay <button>s.
+ *
+ * 2026.08.08.1
+ * ROOT CAUSE FOUND for "description does not auto-expand" report from a German-locale
+ * Windows user (worked fine for other testers): the description force-expand matched the
+ * "Show more"/"Show less" button by its exact English label text, but SoundCloud
+ * translates that visible label per account locale - German renders "Mehr anzeigen"/
+ * "Weniger anzeigen" instead. Unlike the "Track header" aria-label (an internal,
+ * untranslated attribute - see .15 below), this is real UI copy and IS localized. Added
+ * showMoreLabels/showLessLabels arrays and match against either language; see CLAUDE.md
+ * for the standing rule this establishes.
+ *
+ * 2026.08.07.15
+ * ROOT CAUSE FOUND for "userscript loads fine, no elements on the new layout" reports:
+ * the Track header selector required an exact match against the literal string
+ * "Track header", but a reporter's own webi iframe cross-check (added in .14) showed
+ * SoundCloud serving "Track-Header" (hyphen, capital H) there instead - a different
+ * literal string depending on account/rollout bucket, not a locale or browser issue as
+ * earlier suspected. Since #mdb-sc-trackExtras and the entire toolkit are gated behind
+ * this one selector via waitForKeyElements, an exact-string mismatch meant total silence:
+ * no error, no "not found" log, nothing. Both the diagnostic selector and the real
+ * handler now match "Track header" OR "Track-Header", case-insensitively.
+ *
+ * 2026.08.07.14
+ * Added logWebiIframeCrossCheck() and logAuthSignals(), both run from the top frame
+ * alongside the existing DOM snapshot at every checkpoint. logWebiIframeCrossCheck
+ * bakes in the manual "run this snippet in DevTools" check (find the webi iframe by
+ * #__WEBI_IFRAME_PRELOADED__ or iframe[src^="/n/"], read its contentDocument directly)
+ * that we kept having to ask a live tester for by hand while chasing a report where the
+ * webi frame's own script instance reported 0 matches for everything - now every future
+ * log already contains that answer. logAuthSignals logs locale-independent (href/src
+ * pattern, not translated button text) signals for logged-in vs logged-out, since that
+ * turned out to matter for reproducing this bug and is unreliable to reconstruct after
+ * the fact from memory alone.
+ *
+ * 2026.08.07.8
+ * logTrackPageSnapshot now tags each snapshot with "(webi frame)"/"(top frame)".
+ * Verified against a known-good macOS/Chrome log: the top frame and webi frame each run
+ * their own copy of the diagnostic and log under identical unlabeled text, so every
+ * checkpoint appeared twice - only distinguishable by eyeballing which values were
+ * non-zero. Fine when everything works, but ambiguous for a broken report (e.g. "webi
+ * frame never loaded" vs. "webi frame loaded, selectors just don't match").
+ *
+ * 2026.08.07.7
+ * Added "Track page diagnostics" (logTrackPageSnapshot): an unconditional DOM snapshot
+ * of the key track-page selectors (new + old layout), logged at script start, on
+ * window 'load', and 3s/8s/15s afterwards. Every existing track-page log line is gated
+ * behind a waitForKeyElements match, so a report of "userscript loaded, no elements at
+ * all on the new layout" produced zero diagnosable signal. This closes that gap without
+ * changing any behaviour.
+ */

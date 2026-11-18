@@ -1,0 +1,1044 @@
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Basics
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+.mdb-hide {
+    display: none !important;
+}
+
+.mdb-center {
+    text-align: center;
+}
+
+.floatR {
+    float: right;
+}
+
+.mdb-right {
+    text-align: right;
+}
+
+.hand,
+.mdb-toggle {
+    cursor: pointer;
+}
+
+.mono {
+    font-size: 12px !important;
+    font-family: Consolas, monospace !important;
+}
+
+.mdb-small {
+    font-size: small !important;
+}
+
+.mdb-top5 {
+    margin-top: 5px;
+    padding-top: 0;
+}
+
+
+/*
+ * Colors
+ */
+
+.mdb-grey {
+    color: #aaa;
+}
+
+/* Highlight color (orange) */
+.mdb-highlight,
+.mdb-highlight a,
+.mdb-menu-hl,
+a.mdb-highlight-hover:hover,
+.mdb-highlight-hover *:hover {
+    color: #f90 !important;
+}
+.mdb-darkorange,
+.mdb-darkorange a {
+    color: #f60 !important;
+}
+
+/*
+ * Highlight warning
+ */
+.mdb-warning {
+    color:crimson;
+}
+
+/*
+ * nolist
+ */
+.mdb-nolist {
+    margin-block-start: 0;
+    margin-block-end: 0;
+    padding-inline-start: 0;
+    
+    & li {
+        list-style: none;
+        margin: 0;
+    }
+}
+
+/*
+ * links
+ */
+.mdb-domainIcon {
+    max-height: 1em !important;
+    padding: 0 .5em 0 0;
+}
+a.mdb-tidSubmit img.tidSubmit-icon {
+    max-height: 1.3em !important;
+    padding: 0 5px;
+}
+
+/* "Submit this set/playlist to TrackId.net" - the color is left to the site wherever the
+   site actually has one for plain links; the two exceptions are noted per site below. */
+.mdb-tidSubmit-playlist-wrapper {
+    margin: 8px 0;
+}
+a.mdb-tidSubmit-playlist {
+    /* px, not rem: YouTube sets the root font-size to 10px, which turns any rem value here
+       into unreadably small text while looking fine on SoundCloud and Mixcloud. */
+    font-size: 13px;
+    font-weight: bold;
+    text-decoration: none;
+}
+/* overrides the generic tidSubmit-icon rule above: no left padding (the icon starts the
+   link) and an explicit box the 64px favicon renders into, oversampled for retina.
+   display must be stated: Mixcloud's CSS reset makes every img display:block, which would
+   put the icon on its own line above the link text.
+   max-height must be dropped: the generic rule caps it at 1.3em !important, which would
+   silently clip any icon set larger than the text (see Mixcloud below). */
+a.mdb-tidSubmit-playlist img.tidSubmit-icon {
+    display: inline-block;
+    max-height: none !important;
+    width: 16px;
+    height: 16px;
+    padding: 0 5px 0 0;
+    vertical-align: -3px;
+}
+
+/* SoundCloud: our link sits in #mdb-streamActions, which is .sc-text-grey, and SoundCloud
+   lets links inherit their color - so it would render grey rather than as a link. Take the
+   site's own link color. SoundCloud has no visited color of its own (it does not
+   distinguish the state anywhere), so :visited is pinned to the same value, which is what
+   keeps the browser's default purple out. */
+body.soundcloud-com a.mdb-tidSubmit-playlist,
+body.soundcloud-com a.mdb-tidSubmit-playlist:visited {
+    font-weight: 300 !important;
+    color: var(--mui-palette-link-main, #5590fc) !important;
+}
+
+body.soundcloud-com .mdb-tidSubmit-playlist-wrapper {
+    margin: 8px 0 0;
+}
+
+/* YouTube styles no plain links at all - it colors them per component, so ours falls back
+   to the browser default blue, unreadable on the playlist header. That header sits on a
+   cinematic background image which is dark in BOTH themes, which is why YouTube's own title
+   and metadata there are white regardless of light/dark. */
+.ytPageHeaderViewModelHeadlineInfo a.mdb-tidSubmit-playlist {
+    color: #fff;
+}
+
+body.youtube-com .mdb-tidSubmit-playlist-wrapper {
+    margin: 20px 0;
+}
+
+/* YouTube watch pages: same link, but in the playlist panel in the right sidebar, directly
+   below its action row and above the video list - so the generous header margin above would
+   push the list down for nothing. The ID beats that rule without !important.
+   The color cannot be pinned to white like the playlist header above: this panel follows the
+   site theme, so it takes YouTube's own primary-text token, which lands on exactly the value
+   the panel title next to it uses (#f1f1f1 dark, #0f0f0f light). The token is a plain custom
+   property on <html>, so it inherits down into our link. Its NAME is versioned though - the
+   2025 color tokens renamed --yt-spec-text-primary to the one below - hence the chain, and
+   hence the literal spelled out per theme behind it: [dark] on <html> is what YouTube keys
+   its own definitions of that token on. */
+body.youtube-com #playlist-actions + .mdb-tidSubmit-playlist-wrapper {
+    margin: 0 0 12px;
+}
+body.youtube-com #playlist-actions + .mdb-tidSubmit-playlist-wrapper a.mdb-tidSubmit-playlist {
+    color: var(--yt-sys-color-baseline--text-primary, var(--yt-spec-text-primary, #0f0f0f));
+    font-size: 14px;
+}
+html[dark] body.youtube-com #playlist-actions + .mdb-tidSubmit-playlist-wrapper a.mdb-tidSubmit-playlist {
+    color: var(--yt-sys-color-baseline--text-primary, var(--yt-spec-text-primary, #f1f1f1));
+}
+
+/* Mixcloud & YouTube: bigger icon next to its larger UI text */
+body.mixcloud-com a.mdb-tidSubmit-playlist img.tidSubmit-icon,
+body.youtube-com a.mdb-tidSubmit-playlist img.tidSubmit-icon {
+    width: 20px;
+    height: 20px;
+    vertical-align: -4px;
+}
+
+/*
+ * Waiter animation
+ */
+waiter {
+   animation: blink 1.5s infinite;
+   animation-fill-mode: both;
+}
+
+@keyframes blink {
+   0% { opacity: 0 }
+   50% { opacity: 1 }
+   100% { opacity: 0 }
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Tooltip
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/* The hovered text has to be the bubble's containing block: without position:relative here the
+   absolutely positioned ::after falls back to its static position, which for a display:block box
+   is the next line flush with the left edge of whatever ancestor happens to be positioned – so
+   the bubble showed up under the list instead of under the word being hovered. */
+.mdb-tooltip {
+    background-image: linear-gradient(to right, #f60 33%, rgba(255,255,255,0) 0%);
+    background-position: bottom;
+    background-size: 5px 1px;
+    background-repeat: repeat-x;
+    cursor: pointer;
+    position: relative;
+}
+
+.mdb-tooltip[data-tooltip]:hover::after {
+    display: block;
+    position: absolute;
+    top: calc(100% + 3px); /* below the dotted underline, never covering the hovered text */
+    left: 0;
+    z-index: 1000;
+    content: attr(data-tooltip);
+    background: #f60;
+    padding: .25em .5em;
+    color: #fff !important;
+    /* short tooltips (a timestamp) stay on one line, long ones (a whole sentence) wrap instead
+       of pushing the page wider */
+    width: max-content;
+    max-width: min(30em, 80vw);
+    line-height: 1.33em;
+    text-align: left;
+    pointer-events: none;
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * .sortable table
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+table.mdb-element.sortable th {
+    cursor: pointer;
+}
+
+th.sorttable_sorted::after {
+    content: " ▲"; /* ascending */
+}
+th.sorttable_sorted_reverse::after {
+    content: " ▼"; /* descending */
+}
+/* hide the default arrow text (sorttable uses &nbsp;&nbsp;▲/▼) */
+.sorttable_sorted_reverse #sorttable_sortrevind,
+.sorttable_sorted #sorttable_sortfwdind {
+    display: none !important;
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Elements
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/* .mdb-element itself is only the SPA-cleanup marker (see mdbCreatedSelector in global.js)
+   and carries NO spacing of its own: wrapper and inner element are often both marked, so a
+   blanket margin/padding stacked once per nesting level - which pushed injected controls out
+   of the sites' button rows (e.g. the Mixcloud player action links). Spacing is opt-in per
+   element type below, or per component in the site's script.css. */
+.mdb-element.input:not(.inline) {
+    display: block;
+    width: 100%;
+}
+.mdb-element.input {
+    margin: 1rem 0;
+    padding: .25rem .5rem;
+    font-family: monospace;
+    font-size: 12px;
+    border: 2px solid #fc6;
+}
+.mdb-element.note {
+    margin: 1rem 0;
+    padding: .25rem .5rem;
+    background-color: #eee;
+    color: #f60;
+}
+button.mdb-element {
+    margin: 1rem 0;
+    padding: .25rem .5rem;
+    font-size: .9rem;
+}
+pre.mdb-element,
+table.mdb-element {
+    margin: 1rem 0;
+}
+
+/* forces text-node sources (links, spans, …) to stay inline next to their copy button -
+   inputs/textareas keep their own layout, see the per-context rules further below */
+.mdb-copy-text-source:not(input):not(textarea) {
+    display: inline !important;
+    width: auto !important;
+}
+
+/* The control is a pure wrapper around the button, so it never gets vertical margin or padding
+   of its own: whatever it had would be added to the line box (toolkit li) or the flex row
+   (#mdb-pageCreator) it sits in and space that context out. Horizontal spacing is its job and
+   is set here and per context. */
+.mdb-copy-text-control {
+    align-items: center;
+    display: inline-flex;
+    flex-direction: column;
+    margin-block: 0;
+    margin-left: 12px;
+    padding-block: 0;
+    position: relative;
+    vertical-align: middle;
+}
+
+.mdb-copy-text-button {
+    align-items: center;
+    border: 0;
+    background: #f608;
+    border-radius: .3rem;
+    color: inherit;
+    cursor: pointer;
+    display: inline-flex;
+    font: inherit;
+    justify-content: center;
+    padding: 4px 6px;
+    color: #fff;
+    user-select: none; /* a drag of the <a> variant must not select its glyph instead */
+}
+
+.mdb-copy-text-button:hover,
+.mdb-copy-text-button:focus {
+    background: #f90;
+}
+
+/*
+ * Copy buttons behind an input are an <a> so their value can be dragged out of the page (see
+ * appendMdbCopyTextButton() in global.js), with an href only when that value is a URL. Either
+ * way it must still look like the <button> variant, hence: no link styling from the host site,
+ * and "normal" to match a <button>'s UA line-height. The .mdb-toolkit selector is needed to
+ * beat that block's own "a:hover { underline }" rule.
+ */
+a.mdb-copy-text-button {
+    line-height: normal;
+    -webkit-user-drag: element;
+}
+
+a.mdb-copy-text-button,
+a.mdb-copy-text-button:hover,
+a.mdb-copy-text-button:focus,
+.mdb-toolkit a.mdb-copy-text-button:hover {
+    color: #fff !important;
+    text-decoration: none !important;
+}
+
+.mdb-copy-text-feedback {
+    background: rgba(0, 0, 0, 0.8);
+    border-radius: 3px;
+    color: #fff;
+    font-family: sans-serif;
+    font-size: 12px;
+    left: 50%;
+    line-height: 1.3;
+    margin-top: 3px;
+    opacity: 0;
+    padding: 2px 5px;
+    pointer-events: none;
+    position: absolute;
+    top: 100%;
+    transform: translateX(-50%);
+    transition: opacity .2s ease;
+    visibility: hidden;
+    white-space: nowrap;
+    z-index: 1000;
+}
+
+.mdb-copy-text-feedback.visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Stream actions (filter options)
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+#mdb-streamActions {
+    font-weight: 400 !important;
+    margin-top: -5px;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+    border-bottom: 1px solid #f2f2f2;
+
+    & h3 {
+        display: inline;
+    }
+
+    & h3+h3 {
+        margin-left: 15px;
+    }
+
+    & * {
+        font-size: 1rem !important;
+        font-weight: 700;
+        color: #777;
+    }
+
+    & #mdb-streamActions-hide span,
+    & #mdb-streamActions-hide label {
+        padding-right: 1rem;
+    }
+
+    & label input {
+        margin: 0 6px 6px 0;
+    }
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Toolkit
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+.mdb-toolkit {
+    margin: 0 0 20px;
+    border: 1px solid #f90;
+    border-radius: 5px;
+    padding: 0 5px 0 0;
+    
+    & legend {
+        padding: 0 4px 0 3px !important;
+        font-weight: bold !important;
+        color: #f60;
+        font-size: 13px;
+        margin: 0 0 -.3em .75em;
+    }
+
+    & .mdb-toolkit_waiter {
+        height: 90px;
+    }
+    
+    & ul:not(.mdb-nolist):not(.nested) {
+        padding-inline-start: 25px;
+    }
+
+    & ul {
+        margin: .5rem 0;
+    
+        & li {
+            margin: .3rem 0;
+            line-height: 1.33em;
+            
+            & ul {
+                margin: .33rem 0;
+                padding-inline-start: 1em !important;
+                
+                & li {
+                    list-style: circle !important;
+                }
+            }
+        }
+    }
+
+    & a:hover {
+        text-decoration: underline !important;
+    }
+
+    & a.mdb-actualPlayerLink {
+        word-break: break-all;
+    }
+
+    & .mdb-copy-text-button {
+        padding: 0px 6px;
+    }
+}
+
+/*
+ * A clicked toolkit link keeps the look of a new one.
+ *
+ * On every site that colors plain <a>s at all, this is already the case and nothing here
+ * fires: a site rule written without :visited applies to visited links just as well, and an
+ * author rule always outranks the browser's own stylesheet no matter how weak it is. The
+ * purple only appears where a site colors no plain <a> (YouTube), or where the toolkit ends
+ * up in a document that does not carry the site's CSS at all - there the browser's default
+ * takes over, and its default paints a clicked link differently from a new one.
+ *
+ * LinkText IS the browser's default color for a NEW link (and follows color-scheme, so it
+ * stays readable on dark pages), which is why pinning :visited to it means "keep looking
+ * new" without this file ever naming a color of its own.
+ *
+ * :where() is the whole trick: it makes the selector weigh nothing (specificity 0,0,0), so
+ * this rule can only ever beat the browser's default and loses to every site rule and to
+ * every rule of ours further down. Never write this selector without it - a bare
+ * .mdb-toolkit a:visited would repaint the toolkit's links on the sites that style them.
+ */
+:where(.mdb-toolkit a:visited) {
+    color: LinkText;
+}
+
+/* nested lists */
+.mdb-toolkit li ul:not(.mdb-nolist) {
+    margin: .15rem 0 0 !important;
+}
+.mdb-toolkit li ul li {
+    margin: 0 !important;
+    list-style: none !important;
+}
+
+/* usage */
+.mdb-toolkit .mdb-toolkit-usageLink.used {
+    & .mdb-mixesdbLink-actionLinks-wrapper {
+        margin-left: 9px; /* optical 10px */
+        font-size: 12px !important;
+
+        & a {
+            text-decoration: none;
+            border: 1px solid #555;
+            border-radius: 2px;
+            padding: 1px 4px;
+            background-color: rgba(100,100,100,0.5);
+            opacity: .62;
+        }
+
+        & a + a {
+            margin-left: 5px
+        }
+
+        & a:hover {
+            opacity: 1;
+        }
+
+        /* the thin vertical rules grouping the action links:
+           [Insert/Merge Report] | [EDIT HIST] | [integrated checkbox]
+           8px on BOTH sides of each divider - the pills' own 5px gap only applies between
+           adjacent <a>s, so the divider carries its spacing itself */
+        & .mdb-toolkit-actionDivider {
+            display: inline-block;
+            width: 1px;
+            height: 13px;
+            margin: 0 8px;
+            vertical-align: middle;
+            background-color: #888;
+            opacity: .62;
+        }
+
+        /* the divider owns the gap toward the checkbox now - without this the HIST pill's
+           10px margin (see the mdbTrackidCheck section below) would add onto the divider's
+           8px and the two dividers would not be spaced the same */
+        & a.mdb-mixesdbLink.history {
+            margin-right: 0;
+        }
+    }
+}
+
+/* playerUrls items */
+.mdb-toolkit-playerUrls-item {
+    & .tidSubmit-icon {
+        opacity: .33;
+        margin-bottom: 4px;
+    }
+
+    & .tidSubmit-icon:hover {
+        opacity: 1;
+    }
+}
+
+/* embed URL */
+.mdb-toolkit-embedUrl input {
+    margin: -1px 0 -1px;
+    padding: 1px 2px;
+    line-height: 1em;
+    max-width: calc( 100% - 9em ); /* leaves room for the copy button added below */
+    vertical-align: middle;
+}
+
+.mdb-toolkit-embedUrl .mdb-copy-text-control {
+    margin-left: 4px;
+    vertical-align: middle;
+}
+
+.mdb-toolkit-embedUrl input,
+.mdb-toolkit-embedUrl .mdb-copy-text-button {
+    height: 20px;
+    box-sizing: border-box;
+}
+
+.mdb-toolkit-embedUrl .mdb-copy-text-button {
+    padding: 0 6px;
+    font-size: 11px;
+    line-height: 1;
+}
+
+/* TrackId.net check
+   The icon starts the row instead of sitting inside a link, so the generic
+   a.mdb-tidSubmit img.tidSubmit-icon rule above does not reach it and it needs its own box.
+   display must be stated: Mixcloud's CSS reset makes every img display:block, which would put
+   the icon on its own line above the row text.
+   margin-bottom overrides the per-site nudges further down: those align icons that have no
+   vertical-align of their own, so on top of middle they would push this one off again. */
+.mdb-toolkit-tidLink img.tidSubmit-icon {
+    display: inline-block;
+    max-height: 1.4em !important;
+    padding: 0 2px 0 0;
+    margin-top: -4px !important;
+    vertical-align: middle;
+}
+
+/*
+ * Domain specific rules
+ */
+
+/* 1001tracklists.com */
+.mdb-toolkit.thousandandonetracklists-com {
+    margin: 20px 0 15px 0;
+    font-family: sans-serif;
+    font-size: 1.1em;
+    background-color: var(--box-color);
+    padding: 1px 15px 5px 0;
+
+    & legend {
+        font-size: 13px;
+    }
+
+    & a.mdb-mixesdbLink.mixPage:link,
+    & a.mdb-mixesdbLink.mixPage:active,
+    & a.mdb-mixesdbLink.mixPage:visited {
+        color: #f90 !important;
+    }
+}
+
+/* finn-johannsen.de */
+.mdb-toolkit.finn-johannsen-de {
+    background-color: var(--box-color);
+
+    & li.mdb-toolkit-playerUrls a {
+        color: #044dd2 !important;
+    }
+
+    & a {
+        font-weight: inherit !important;
+        color: #f60;
+        border-bottom: none !important;
+    }
+    
+    & a.mdb-tidSubmit img.tidSubmit-icon {
+        margin-bottom: -3px !important;
+    }
+}
+
+/* groove.de */
+.mdb-toolkit.groove-de {
+    & > ul > li  ul  li * {
+        display: inline !important;
+        
+        & .mdb-domainIcon {
+            opacity: 1;
+        }
+    }
+    
+    & .tidSubmit-icon:not(:hover) {
+        opacity: .33 !important;
+    }
+    
+    & .tidSubmit-icon:hover {
+        opacity: 1 !important;
+    }
+}
+
+/* hearthis.at */
+.mdb-toolkit.hearthis-at {
+    margin: 0 20px 25px 20px;
+    background-color: #222;
+    
+    & a {
+        color: #7bf;
+        font: sans-serif;
+    }
+    
+    & legend {
+        border: 0;
+        width: inherit;
+        font-size: 15px !important;
+    }
+
+    & li img.mdb-checked-icon {
+        padding-bottom: 3px;
+    }
+}
+
+/* mixcloud.com */
+.mdb-toolkit.mixcloud-com {
+    margin: -25px 0 30px;
+    font-size: .875rem;
+}
+
+/* soundcloud.com */
+.mdb-toolkit.soundcloud-com {
+    margin-bottom: 5px !important;
+
+    /*
+     * SoundCloud's own link color, taken from the var the site keeps it in:
+     * --link-standard-color is redefined per theme on <body> (#699fff on the dark listen
+     * page, #044dd2 on light surfaces), so the var follows the theme by itself. The fallback
+     * is the DARK value, not the light one: it only ever fires in the new Material layout's
+     * own document, which does not carry SoundCloud's legacy vars and is dark - a #044dd2
+     * there would be unreadable.
+     *
+     * SoundCloud's own rule is "a, a:visited { color: var(--link-standard-color) }", i.e. it
+     * already paints our links right on the pages that carry its CSS, and it already paints
+     * both states the same. This is what covers the pages that do NOT - the Material
+     * layout's document - where a plain <a> would otherwise fall back to the browser default
+     * and turn purple once clicked.
+     *
+     * Written WITHOUT :visited on purpose: a selector that does not name a link state
+     * matches visited links too, so one declaration covers both, and one is what "same color
+     * clicked or not" needs. (A :visited twin would be worse than redundant - Chrome does
+     * not resolve var() inside a :visited rule at all.)
+     *
+     * Left out on purpose, all three have a look of their own already:
+     * - a.mdb-mixesdbLink.mixPage - the orange MixesDB highlight further down
+     * - the EDIT/HIST pills - .mdb-mixesdbLink too, and colored as pills, not as links
+     * - a.mdb-copy-text-button - a button that happens to be an <a>
+     */
+    & a:not(.mdb-mixesdbLink):not(.mdb-copy-text-button) {
+        color: var(--mui-palette-link-main, #5590fc);
+    }
+}
+
+/* toxicfamily.de */
+.mdb-toolkit.toxicfamily-de {
+    margin: -10px 0 40px;
+}
+
+/* trackid.net */
+.mdb-toolkit.trackid-net {
+    margin: 20px 0 10px;
+    
+    & legend {
+        color: #f90;
+        font-size: 15px !important;
+    }
+
+    & ul {
+        font-size: 14px !important;
+    }
+    
+    & li a {
+        color: inherit;
+    }
+    
+    & .mdb-mixesdbLink-actionLinks-wrapper {
+        & a {
+            color: #fff;
+        }
+    }
+    
+    & .mdb-toolkit-playerUrls-item {
+        & a {
+            color: var(--main-light);
+            text-decoration: none;
+        }
+        & a:hover {
+            text-decoration: underline;
+        }
+    }
+}
+
+/* wearesoundspace.com */
+.mdb-toolkit.wearesoundspace-com {
+    & > ul > li {
+        margin: .15rem 0 !important;
+    }
+    & li {
+        line-height: 1 !important;
+    }
+}
+
+/* youtube.com */
+.mdb-toolkit.youtube-com {
+    margin: 25px 0 5px;
+    background-color: #222;
+    color: #fff;
+    padding-top: 5px;
+    padding-bottom: 10px;
+    font-size: 1.4rem;
+    
+    & legend {
+        font-size: 1.6rem;
+    }
+    
+    & li + li {
+        margin-top: 10px !important;
+    }
+    
+    /* YouTube colors no plain <a> of its own, so these rows carry the color themselves.
+       No :visited half: the state used to dim the row to #ccc, which made a row the reader
+       had already clicked look switched off. One declaration, no link state named, so it
+       covers clicked and unclicked alike. */
+    & .mdb-toolkit-usageLink,
+    & .mdb-toolkit-tidLink {
+        & a:hover {
+            cursor: pointer;
+        }
+        & a {
+            color: #fff;
+        }
+    }
+}
+
+/* Slim wrapper */
+.mdb-toolkit.ra-co {
+    & .mdb-toolkit-usageLink-intro {
+        display: block;
+    }
+}
+
+
+/*
+ * The toolkit with the Page Creator row ABOVE it.
+ *
+ * Two of the site rules above pull the toolkit UP with a negative top margin (mixcloud.com
+ * -25px, toxicfamily.de -10px): they close the gap the site leaves under its own block, which
+ * is what the toolkit is glued to on those pages. With the Page Creator row standing between
+ * the two, that pull has nothing left to close - it drags the toolkit into the row's last
+ * line instead.
+ *
+ * The sibling combinator is what says "above it": the row is placed as the toolkit's preceding
+ * sibling on every site so far. "~" and not "+" so a site that puts something of its own
+ * between the two still gets it.
+ *
+ * Only the two NEGATIVE pulls are listed. The positive top margins (trackid.net 20px,
+ * youtube.com 25px) are the gap between the row and the toolkit on those pages and have to
+ * stay - a blanket "margin-top: 0" for every toolkit with a row above it would collapse them.
+ * A site that grows a negative pull later belongs on this list.
+ *
+ * One ID and one class beats the two classes of the site rules above, so no !important.
+ */
+#mdb-pageCreator ~ .mdb-toolkit.mixcloud-com,
+#mdb-pageCreator ~ .mdb-toolkit.toxicfamily-de {
+    margin-top: 0;
+}
+
+
+/*
+ * mdbTrackidCheck
+ */
+.mdb-mixesdbLink.history {
+   margin-right: 10px;
+}
+
+#mdbTrackidCheck-wrapper * {
+    display: inline !important;
+}
+
+/* higher specificity than the * rule above, which would force the divider inline - and an
+   inline element cannot hold its 1px width */
+#mdbTrackidCheck-wrapper .mdb-toolkit-actionDivider {
+    display: inline-block !important;
+}
+
+#mdbTrackidCheck-wrapper {
+    white-space: nowrap;
+    
+    & input {
+        padding: 0;
+        margin: 0 5px 3px 0;
+        vertical-align: middle;
+    }
+    
+    &.integrated label {
+        color: #b3ff51 !important;
+    }
+
+    & img.mdb-checked-icon {
+        width: 13px;
+        margin: 1px 3px -1px 0;
+    }
+}
+
+
+/*
+ * Bright websites
+ */
+.mdb-toolkit.mixcloud-com {
+    & #mdbTrackidCheck-wrapper {
+        color: #75b224 !important;
+    }
+}
+
+/* 
+ * Dark websites
+ */
+.mdb-toolkit.hearthis-at,
+.mdb-toolkit.soundcloud-com,
+.mdb-toolkit.youtube-com {
+    & #mdbTrackidCheck-wrapper {
+        color: #8cc73f !important;
+    }
+}
+
+.mdb-toolkit.thousandandonetracklists-com,
+.mdb-toolkit.soundcloud-com,
+.mdb-toolkit.trackid-net,
+.mdb-toolkit.youtube-com {
+    & a.mdb-mixesdbLink.mixPage:link,
+    & a.mdb-mixesdbLink.mixPage:active,
+    & a.mdb-mixesdbLink.mixPage:visited {
+        color: #f90 !important;
+    }
+}
+
+.mdb-toolkit.thousandandonetracklists-com,
+.mdb-toolkit.hearthis-at,
+.mdb-toolkit.soundcloud-com,
+.mdb-toolkit.trackid-net,
+.mdb-toolkit.youtube-com {
+    /* the EDIT/HIST pills. One color for both states, like the light-site block further
+       down already has it: a pill that dims to #ccc after the first click reads as disabled
+       rather than as visited. */
+    & .mdb-mixesdbLink-actionLinks-wrapper {
+        & a {
+            color: #fff;
+        }
+    }
+
+    /* inputs like embed URL */
+    & input[type="text"] {
+        border: 0;
+        background-color: #333;
+        color: #ccc;
+    }
+}
+
+.mdb-toolkit.thousandandonetracklists-com,
+.mdb-toolkit.mixcloud-com,
+.mdb-toolkit.ra-co {
+    & > ul > li {
+        list-style: disc !important;
+    }
+}
+
+/* 
+ * tidSubmit icon on dark websites
+ * hearthis.at: has the text link, not the icon
+ * TrackId.net: No submit link needed
+ */
+.mdb-toolkit.thousandandonetracklists-com {
+    .mdb-toolkit-playerUrls-item {
+        & .tidSubmit-icon:not(:hover) {
+            opacity: .66;
+        }
+    }
+}
+
+/* light / white websites */
+.mdb-toolkit.finn-johannsen-de,
+.mdb-toolkit.groove-de,
+.mdb-toolkit.ra-co,
+.mdb-toolkit.wearesoundspace-com {
+    & .tidSubmit-icon {
+        margin-bottom: -3px !important;
+    }
+}
+
+.mdb-toolkit.finn-johannsen-de,
+.mdb-toolkit.groove-de,
+.mdb-toolkit.ra-co,
+.mdb-toolkit.toxicfamily-de,
+.mdb-toolkit.wearesoundspace-com {
+    font-family: sans-serif;
+    font-size: 14px;
+    background-color: #fcfcfc;
+
+    & legend {
+        font-size: 14px;
+    }
+    
+    & a.mdb-mixesdbLink.mixPage  {
+        background-color: inherit !important;
+    }
+    
+    & a.mdb-mixesdbLink.mixPage:link,
+    & a.mdb-mixesdbLink.mixPage:active,
+    & a.mdb-mixesdbLink.mixPage:visited {
+        color: #f60 !important;
+    }
+    
+    & ul  {
+        line-height: 1.33em;
+    }
+}
+
+.mdb-toolkit.finn-johannsen-de,
+.mdb-toolkit.groove-de,
+.mdb-toolkit.mixcloud-com,
+.mdb-toolkit.ra-co,
+.mdb-toolkit.toxicfamily-de,
+.mdb-toolkit.wearesoundspace-com {
+    & .mdb-mixesdbLink-actionLinks-wrapper {
+        & a,
+        & a:visited {
+            white-space: break-spaces;
+            color: #555;
+            font-size: 85% !important;
+            padding: 0 4px !important;
+            line-height: 1 !important;
+            border: 1px solid #ccc !important;
+            background-color: rgba(100, 100, 100, 0.15) !important;
+        }
+        
+        & a:hover {
+            text-decoration: none !important;
+        }
+    }
+}
+
+
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * OS lightmode fixes
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+@media (prefers-color-scheme: light) {
+    
+    /* hearthis.at */
+    body.hearthis-at {
+        & .content-layer-content {
+            background: inherit;
+            color: #fff;
+        }
+        
+        & .mdb-toolkit.hearthis-at {
+            background-color: transparent !important;
+            
+            & a {
+                color: #7cf;
+            }
+        }
+    }
+}

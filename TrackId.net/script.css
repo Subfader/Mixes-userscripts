@@ -1,0 +1,290 @@
+#mdbTrackidCheck-wrapper.integrated .hand {
+    cursor: inherit !important;
+}
+
+/*
+ * Font size of inserted elements weird
+ * Buggy if set to body globally
+ */
+.mdb-menu-hl {
+	font-size: 1rem;
+}
+.mdb-menu,
+.mdb-tid-table th {
+	font-size: .9rem;
+}
+.mdb-info,
+.MuiDataGrid-cellContent:not(img),
+td a.white-link,
+#tlEditor {
+	font-size: .85rem !important;
+}
+
+div[contenteditable="plaintext-only"] {
+	font-family: monospace !important
+}
+
+/*
+ * TID styles
+ */
+#mixesdb-TIDstylesWrapper {
+	margin-bottom: 30px;
+}
+
+/*
+ * Quick links
+ */
+.user-name {
+	display: none;
+}
+.mdb-quickLinks {
+    text-align: center;
+
+	& a {
+		font-size: 1em !important;
+		color: #fff !important;
+		text-decoration: none;
+
+		&:hover {
+	        cursor: pointer;
+		    text-decoration: underline;
+		}
+	}
+}
+
+.MuiDivider-root.MuiDivider-fullWidth {
+    margin: 10px 00;
+}
+
+.mdb-menu-hl,
+.mdb-menu {
+    text-align: center;
+}
+
+/*
+ + Detail page wrapper
+ */
+@media (min-width: 600px) and (max-width: 899px) {
+    .MuiGrid-container {
+        width: calc(100% - 70px);
+    }
+}
+@media (min-width: 900px) and (max-width: 1248px) {
+    .MuiGrid-container {
+        width: calc(100% - 100px);
+    }
+}
+
+/*
+ * Tables
+ */
+table.mdb-tid-table {
+    width: 100%;
+    border-collapse: collapse;
+    
+    & tr {
+        border-top: 1px solid #333;
+        border-bottom: 1px solid #333;
+    }
+
+    & tr:hover {
+	    background-color: #272727; 
+	}
+	
+    & th {
+        padding: 0 5px;
+    }
+	
+    & th,
+    & td:not(.title) {
+        text-align: center;
+    }
+
+    & td.AudioStreamType {
+		width: 40px !important;
+
+		& img {
+            min-width: 25px !important;
+            height: auto !important;
+			padding-top: 5px;
+			max-height: 2em;
+		}
+	}
+
+	& td.status {
+	    border-radius: 0;
+	}
+
+	& td.title {
+        min-width: 200px;
+        padding-left: 10px;
+		
+	    & .white-link {
+	        white-space: inherit !important;
+	    }
+	}
+
+	& td.channel {
+	    padding-left: 10px;
+	    padding-right: 10px;
+
+		& img {
+			min-width: 40px;
+		}
+	}
+
+    & td.channel,
+    & td.mdbTrackidCheck {
+        text-align: center;
+    }
+    
+    & img.mdb-checked-icon {
+        width: 20px !important;
+        height: auto;
+        vertical-align: middle;
+    }
+
+    & td.mdbTrackidCheck {
+    	& input {
+		    -ms-transform: scale(1.4); /* IE */
+		    -moz-transform: scale(1.4); /* FF */
+		    -webkit-transform: scale(1.4); /* Safari and Chrome */
+		    -o-transform: scale(1.4); /* Opera */
+		    transform: scale(1.4);
+		    margin-left: 1px; /* align with checked icon */
+		}
+
+		& .small {
+		    font-size: 12px;
+		    line-height: 1em !important;
+		}
+	}
+}
+
+/* hide unimportant columns on slim view */
+@media (max-width: 1200px) {
+    table.mdb-tid-table {
+        & th#createdOn, td.createdOn,
+        & th#addedBy, td.addedBy {
+            display: none;
+        }
+    }
+}
+@media (max-width: 1600px) {
+    table.mdb-tid-table {
+        & th#channel, td.channel {
+            display: none;
+        }
+    }
+}
+
+/*
+ * Page navigation
+ */
+.MuiToolbar-regular .header-right {
+	width: inherit !important;
+}
+.MuiTablePagination-toolbar,
+.MuiTablePagination-toolbar > p,
+.MuiTablePagination-toolbar > div {
+	/* display: inline !important; */ /* AVOID FLASHING */
+	position: inherit !important;
+	padding-left: 0;
+}
+
+/*
+ * Search on MixesDB icon link
+ */
+#mdb-searchLink-detailPage {
+	padding-left: 13px;
+}
+.mdb-searchLink-list img {
+	margin-top: 12px !important;
+}
+.mdb-searchLink-list.active,
+.mdb-searchLink-list.visited,
+.mdb-searchLink-list:visited  {
+	opacity: .38;
+}
+
+/*
+ * Player
+ */
+.mdb-player-audiostream {
+	margin: 20px 0 20px;
+}
+
+/*
+ * Replaced search
+ */
+#mdb-replacedSearch {
+	width: 100%;
+	display: table;
+}
+#mdb-replacedSearch .mdb-element {
+	min-height: 28px;
+	display: table-cell;
+}
+#mdb-replacedSearch button {
+	width: 70px;
+	font-weight: bold;
+}
+#mdb-replacedSearch .replaced-search-input {
+	width: calc( 100% - 75px - .5rem ); /* .5rem = .mdb-element.input padding */
+}
+
+/*
+ * TrackId.net links under the players on mixesdb.com
+ *
+ * Moved here with the block that writes them (out of MixesDB_Userscripts_Helper/script.css).
+ * body.mixesdb-com scopes them: this file is loaded on trackid.net too, where .playerWrapper
+ * does not exist but a rule with no site in it is a trap for the day it does.
+ */
+body.mixesdb-com {
+	& img.mdb-checked-icon {
+		padding-left: 0 !important;
+        margin-right: 0 !important;
+    }
+}
+body.mixesdb-com .playerWrapper .tidLink {
+    text-align: right;
+
+    /* the icon carries .fixedWidth in the markup: MediaWiki:Common.css blows every element
+       inside a .playerWrapper up to width:100% and .fixedWidth is the exclusion it honours,
+       so only the sizing left over from that is ours */
+    & .tidSubmit-icon {
+        height: 14px;
+        vertical-align: middle;
+        margin-top: -3px;
+    }
+
+    & .mdb-checked-icon {
+        height: 12px;
+        width: auto !important;
+        padding-left: 3px;
+        padding-right: 4px;
+        margin-top: -3px !important;
+    }
+
+    /* The modal's eye behind each link (shared/mixesdb_modal/): same width:100% fight as the
+       icons above - the link itself is excluded by the "fixedWidth" it is rendered with, the
+       svg inside it is not, so it is sized here. */
+    & a.mdb-modalEye svg {
+        width: 16px !important;
+        height: 16px;
+    }
+}
+
+body.mixesdb-com.ns-0 .playerWrapper .tidLink {
+    padding-top: 5px;
+    height: 10px;
+    margin-top: -10px;
+    margin-bottom: -5px;
+}
+
+body.mixesdb-com.rootpage-MixesDB_Explorer {
+    & .playerWrapper .tidLink {
+        margin-top: -4px;
+        margin-bottom: 3px;
+    }
+}

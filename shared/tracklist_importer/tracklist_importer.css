@@ -1,0 +1,653 @@
+/* * * * * * * * * * * * * * * * * * * * * * * * * * * * *
+ *
+ * Tracklist Importer (beta)
+ *
+ * Loaded lazily by funcs.js (tlImporter_loadCss) on both sides: the player site showing the
+ * Insert/Merge/Report links, and the MixesDB edit form showing the review block.
+ * The links themselves need next to no rules of their own - they sit inside the toolkit's
+ * .mdb-mixesdbLink-actionLinks-wrapper, whose global.css rules style every <a> in it; only the
+ * "Chaptered" one is toned down, being a verdict as much as an action. The "nothing to merge"
+ * note is the one thing there that is NOT an <a>, so it brings its own.
+ *
+ * * * * * * * * * * * * * * * * * * * * * * * * * * * * */
+
+/* the Report box under the toolkit (player site) */
+#mdb-tlImporter-report-box {
+    display: block;
+    width: 100%;
+    margin: 8px 0 0;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    font-family: monospace, monospace;
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+/* the "Identical" / "Nothing to add" note in the toolkit's action row, standing where the
+ * Insert/Merge link would be. Deliberately NOT pill-shaped like the links around it: there is
+ * nothing to click here, it is a statement about the two tracklists. The row's own font-size
+ * is inherited; the help cursor announces the tooltip that carries the reason. */
+.mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note {
+    padding: 1px 2px;
+    opacity: .62;
+    cursor: help;
+    white-space: nowrap;
+    --mdb-tlImporter-noteGreen: #8cc73f; /* the tick colours below - see there */
+}
+
+/* the Report link behind the note. global.css spaces the row's pills with "a + a", which a
+   span in front of one does not trigger - without this the note and Report sit flush. */
+.mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note + a {
+    margin-left: 5px;
+}
+
+/* the "Chaptered" link. An <a> like Insert/Merge, but not the same promise: it opens the edit
+   form WITHOUT a merge, for the hand-merge there. Dimmed towards the notes above, so the row
+   does not read as "a merge is waiting here" - it is still a pill, because it IS clickable. */
+.mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-link-chapters {
+    opacity: .75;
+}
+
+/* the two verdicts that say the found tracklist is on the page already ("Identical" and
+   "Nothing to add") - the ones the "TID tracklist is integrated" checkbox is ticked from. Full
+   strength instead of a colour: the toolkit runs on bright and on dark sites, and no one green
+   reads well on both. */
+.mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note-integrated {
+    opacity: 1;
+}
+
+/* The tick happens by itself, so it announces itself: the note fades to green while the click
+   is still pending, and the click lands shortly after it got there (tlImporter_tickDelayMs in
+   funcs.js - a little longer than this fade, keep the two in step). It HOLDS the green instead
+   of pulsing back: the ticked state below is the same green, so the note simply stays as it
+   ended up and nothing flickers under the reader's eyes. The green is the
+   toolkit's own "integrated" green, kept in the --mdb-tlImporter-noteGreen variable on the note
+   because keyframes are global and the bright sites need the darker one - same split as in
+   global.css. */
+.mdb-toolkit.mixcloud-com .mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note {
+    --mdb-tlImporter-noteGreen: #75b224;
+}
+
+/* no "from" stop on purpose: the implicit one is the note's own colour, whatever the site
+   gives it, so the fade starts where the note already stands */
+@keyframes mdb-tlImporter-noteTick {
+    to {
+        color: var(--mdb-tlImporter-noteGreen);
+    }
+}
+
+.mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note-ticking {
+    animation: mdb-tlImporter-noteTick .7s ease-in forwards;
+}
+
+.mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note-ticked {
+    color: var(--mdb-tlImporter-noteGreen);
+}
+
+/* the review block between MediaWiki's diff and the wiki edit box (mixesdb.com).
+ * position/box-sizing are for the widen toggle: the button is positioned into the top left
+ * corner, the side the block grows to, OVER the block's own padding - so it costs no line and
+ * no column width - and the width tlImporter_applyWide() states has to include padding and
+ * border, or the stretched block reaches past the window edge. */
+#mdb-tlImporter-diff {
+    background-color: #f4f9fa !important;
+    position: relative;
+    box-sizing: border-box;
+    /* the block is a FIELDSET with a "Diff" legend now, like the form's own sections.
+     * min-width: 0 undoes the fieldset default (min-content), or the three columns could
+     * never shrink and the block would push the page wide instead of wrapping its lines. */
+    min-width: 0;
+    margin: 10px 0;
+    padding: 8px 10px;
+    border: 1px solid #ccc;
+    border-radius: .6rem;
+    background-color: #fafafa;
+    font-size: 12px;
+}
+
+/* stretched to the left window edge (tlImporter_applyWide): the margin and width are inline
+ * styles from the measuring, this only lifts the block over whatever it now covers - MediaWiki's
+ * sidebar is a positioned element and would otherwise paint on top of it. */
+#mdb-tlImporter-diff.mdb-tlImporter-wide {
+    z-index: 5;
+}
+
+/* the legend: bold "Diff" standing on the border line. Pushed right so the widen toggle keeps
+ * the top left corner - the side the block grows to - and legend plus icons read as one
+ * labelled edge. line-height matches the toggles' 22px and the vertical padding is zeroed
+ * (the monobook skin gives legends padding: .5em), so the legend's box and the buttons are
+ * the same 22px, centered on the same line - the toggles' top: -22px counts on that. */
+#mdb-tlImporter-diff legend {
+    margin-left: 20px;
+    padding: 0 4px;
+    line-height: 22px;
+}
+
+/* the two corner toggles: widen in the top left - the side that block grows to, so the button
+ * stands where the movement happens - and the down arrow in the top right, the upper right
+ * corner of the Candidate column. Absolute, so they float over the block's own edge instead of
+ * taking a line above the columns: the heading row starts at the very top either way.
+ *
+ * The !important on every visual property is not decoration: while the block is DOWN it sits
+ * inside form#editform, and mixesdb.com dresses "form button" with its own !important rules
+ * (bold, 1em side padding, borders) - which squeezed the flex-item svg to 0px width and turned
+ * both toggles into ordinary grey buttons with no icon. In the block's home position outside
+ * the form those rules never matched, which is why the widen toggle looked right for months.
+ * The svg gets flex: 0 0 auto for the same fight: a flex item may be squeezed below its width
+ * by a padded-up container, and the icon IS the button.
+ *
+ * top straddles the border line, the same line the legend sits on - legend and icons read as
+ * one labelled edge. The abs containing block of a fieldset starts BELOW the legend, so the
+ * line is 11px (half the legend's pinned 22px line-height) above top: 0, and centering the
+ * 22px button on it takes another 11px: -22px. */
+#mdb-tlImporter-diff .mdb-tlImporter-wide-toggle,
+#mdb-tlImporter-diff .mdb-tlImporter-down-toggle {
+    position: absolute;
+    top: -22px;
+    z-index: 2;
+    width: 22px !important;
+    min-width: 0 !important;
+    height: 22px !important;
+    min-height: 0 !important;
+    padding: 2px !important;
+    margin: 0 !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888 !important;
+    background: none !important;
+    border: 1px solid transparent !important;
+    border-radius: .2em !important;
+    box-shadow: none !important;
+    font-size: 14px !important;
+    font-weight: normal !important;
+    line-height: 1;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-wide-toggle {
+    left: 12px;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-down-toggle {
+    right: 12px;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-wide-toggle:hover,
+#mdb-tlImporter-diff .mdb-tlImporter-down-toggle:hover {
+    color: #111 !important;
+    border-color: #ccc !important;
+    background-color: #fff !important;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-wide-toggle svg,
+#mdb-tlImporter-diff .mdb-tlImporter-down-toggle svg {
+    width: 14px !important;
+    height: 14px !important;
+    flex: 0 0 auto !important;
+    display: block;
+}
+
+/* the three columns, with a grab bar between each pair (tlImporter_addColResizers) - so five
+ * grid items, not three. minmax(0, ...) so a long unbroken track line wraps inside its column
+ * instead of blowing the grid apart, and no gap: the bars ARE the space between the columns,
+ * and a gap on top of them would double it. The template here is only what the block looks
+ * like before the JS applies the stored widths - the fr numbers it writes are the same shape. */
+#mdb-tlImporter-diff .mdb-tlImporter-cols {
+    margin-top: -10px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto minmax(0, 1fr);
+    grid-gap: 0;
+    gap: 0;
+    align-items: start;
+}
+
+/* the grab bar between two columns: the whole 14px column is the hit area and can be grabbed
+ * anywhere down the block (align-self, against the container's "start"). What is SEEN of it is
+ * one light rail, no more - it is the space between two columns first and a control second,
+ * and a grip drawn into every one of them turns the block into a set of tools. The pointer
+ * over it (col-resize) and the darker rail on hover are what say it can be dragged. */
+#mdb-tlImporter-diff .mdb-tlImporter-col-resizer {
+    position: relative;
+    width: 14px;
+    align-self: stretch;
+    cursor: col-resize;
+}
+
+/* the rail covers the BOXES between the columns and nothing else: the two custom properties
+ * are measured onto each bar by tlImporter_alignResizers(), and the fallbacks (the whole
+ * column) apply for the moment before that runs. Drawn past the boxes it would be a line
+ * through the headings above and the feedback box and Apply button below - a border where the
+ * block has none. */
+#mdb-tlImporter-diff .mdb-tlImporter-col-resizer::before {
+    content: "";
+    position: absolute;
+    top: var(--mdb-rail-top, 0);
+    height: var(--mdb-rail-height, 100%);
+    left: 50%;
+    width: 4px;
+    margin-left: -2px;
+    border-radius: 2px;
+    background-color: #eee;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-col-resizer:hover::before {
+    background-color: #ddd;
+}
+
+/* while a bar is being dragged the pointer is the resize one everywhere, and nothing on the
+ * page is selectable - a drag across three text columns would otherwise select all of them */
+body.mdb-tlImporter-resizing {
+    cursor: col-resize;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-col-head {
+    font-weight: bold;
+    margin-bottom: 2px;
+    text-align: center;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-col-help {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 6px;
+    text-align: center;
+}
+
+/* head and help text stay on ONE line and get cut with an ellipsis instead of wrapping: each
+ * column is its own block, so a help text that needs two lines in one column alone pushes that
+ * column's box a line further down and the three boxes no longer start at the same height.
+ * The columns are minmax(0, 1fr) above, so they may shrink far enough for the cut to happen;
+ * the full sentence stays readable as the element's title tooltip. */
+#mdb-tlImporter-diff .mdb-tlImporter-col-head,
+#mdb-tlImporter-diff .mdb-tlImporter-col-help {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* the Original and Candidate columns: bordered like the Merged textarea between them, so the
+ * three read as one row of boxes */
+#mdb-tlImporter-diff pre.mdb-tlImporter-pre {
+    margin: 0;
+    padding: 6px 8px;
+    font-family: monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: .3em;
+    /* merge mode holds this box level with the paste box beside it by setting a min-height
+     * measured off that box's offsetHeight (tlImporter_handMatchHeights) - which counts
+     * padding and border, so this one has to as well */
+    box-sizing: border-box;
+}
+
+/* the Merged column's Tracklist Editor box - same padding as the pres left and right of it, so
+ * a line of text sits at the same height in all three columns. Its own height comes from the
+ * rows attribute tlImporter_renderDiffView() sets; the pres are as tall as their text. */
+#mdb-tlImporter-diff textarea.mixesdb-TLbox {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+/* the API's close button has nothing to close here - the block is the edit form's own UI and
+ * goes with the page, not with a click */
+#mdb-tlImporter-diff #tlEditor-feedback-close {
+    display: none;
+}
+
+/* the verdict rows, without the list indent. Getting them BELOW the chips is no longer their
+ * own business: the chips sit in one wrapper now (tlBoxChipRow), which tracklistEditor_copy.css
+ * turns into a line of its own on mixesdb.com - the clearfix per element that used to stand
+ * here only ever worked until the next render added a float it did not name. The ul selector
+ * covers the moment before the flatten (tlImporter_flattenFeedbackList) replaces the API's
+ * list with the div rows. */
+#mdb-tlImporter-diff #tlEditor-feedback ul,
+#mdb-tlImporter-diff .mdb-tlImporter-feedback-rows {
+    margin-top: .5rem;
+    margin-left: 0;
+    padding-left: 0;
+    padding-inline-start: 0;
+    list-style: none;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-feedback-row + .mdb-tlImporter-feedback-row {
+    margin-top: .5em;
+}
+
+/* The Original and Candidate columns are EDITABLE: the highlighted <pre> above stays where it
+ * is and becomes the backdrop, and a textarea with invisible text lies exactly on top of it.
+ * The <pre> is the one in the flow, so it still decides the column's height (and still answers
+ * the min-height merge mode measures onto it); the box just fills whatever that height is.
+ *
+ * Every value below is a COPY of the <pre>'s, on purpose and not by inheritance: font, size,
+ * line-height, padding, border box and both wrapping rules. If any one of them differs the two
+ * texts wrap at different words, and every highlight behind that point sits on the wrong one. */
+#mdb-tlImporter-diff .mdb-tlImporter-hl {
+    position: relative;
+}
+
+#mdb-tlImporter-diff .mdb-tlImporter-hl-input {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    margin: 0;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    /* transparent, not none: the border is a pixel of width, and without one here the text
+     * inside would start a pixel further left than the text in the <pre> under it */
+    border: 1px solid transparent;
+    border-radius: .3em;
+    background: transparent;
+    font-family: monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+    word-break: break-word;
+    /* the <pre> under it is exactly as tall as this text, so there is never anything to
+     * scroll - and a scrollbar appearing here would shift the box's text against the pre's */
+    overflow: hidden;
+    resize: none;
+    /* the letters are the <pre>'s; only the caret and the selection are this box's */
+    color: transparent;
+    -webkit-text-fill-color: transparent;
+    caret-color: #202122;
+}
+
+/* translucent on purpose: an opaque selection would paint over the highlighted text in the
+ * <pre> behind it, and the reader would be selecting text they can no longer read */
+#mdb-tlImporter-diff .mdb-tlImporter-hl-input::selection {
+    background: rgba( 51, 102, 204, .25 );
+}
+
+/* the focus ring belongs to the box, so it is drawn on the box - it covers the <pre>'s own
+ * grey border, which is why that border is repeated here rather than removed there */
+#mdb-tlImporter-diff .mdb-tlImporter-hl-input:focus {
+    outline: none;
+    border-color: #36c;
+    box-shadow: inset 0 0 0 1px #36c;
+}
+
+/* edited since the last merge: the backdrop dropped its spans (tlImporter_hlStale), and the
+ * dashed border says the colours are gone until the next merge rather than simply absent */
+#mdb-tlImporter-diff .mdb-tlImporter-hl-stale > pre.mdb-tlImporter-pre {
+    border-style: dashed;
+}
+
+/* Merge and Apply under the Merged column, in that order - merge what the two boxes hold,
+ * then write it. Flex rather than text-align, so the two keep their gap at any width. */
+#mdb-tlImporter-diff .mdb-tlImporter-apply-wrap {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: .8em;
+    margin-top: 8px;
+}
+
+/* no space of the box's own under the column - the spacing toward the Apply button below is
+ * the apply wrap's margin alone. The actual offender is the feedback box's 14px bottom margin
+ * (tracklistEditor_copy.css); the wrapper rule is the guard should a skin ever pad it */
+#mdb-tlImporter-diff .tlEditor {
+    padding-bottom: 0;
+    margin-bottom: 0;
+}
+
+#mdb-tlImporter-diff #tlEditor-feedback {
+    margin-top: .5rem;
+    margin-bottom: 0;
+}
+
+/* original text the merge changed - never on blanks or "..." gaps */
+.mdb-tlImporter-changed {
+    background-color: #ffe1a8;
+    border-radius: 2px;
+}
+
+/* candidate text the merge took into the result */
+.mdb-tlImporter-used {
+    background-color: #cdeeb8;
+    border-radius: 2px;
+}
+
+/* candidate text the merge could NOT place - never on blanks or "..." gaps */
+.mdb-tlImporter-unused {
+    background-color: #ffe1a8;
+    border-radius: 2px;
+}
+
+/* Save/Preview while "Show changes" has not been used yet */
+.mdb-tlImporter-locked {
+    opacity: .4;
+    cursor: not-allowed;
+}
+
+/* the block moved down above the site's own Tracklist Editor (tlImporter_applyDown): the
+ * Merged column gave its text to #tlEditor-textarea and is hidden - and so are BOTH grab
+ * bars, since a bar next to a hidden column would drag against a width of zero. Two equal
+ * columns remain; the bars' 14px stays as the gap between them. !important because the
+ * dragged widths are an inline style on this element, and they name three columns. */
+#mdb-tlImporter-diff.mdb-tlImporter-down .mdb-tlImporter-col-merged,
+#mdb-tlImporter-diff.mdb-tlImporter-down .mdb-tlImporter-col-resizer {
+    display: none;
+}
+
+#mdb-tlImporter-diff.mdb-tlImporter-down .mdb-tlImporter-cols {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) !important;
+    grid-column-gap: 14px;
+    column-gap: 14px;
+}
+
+/* the Insert reading of the block (tlImporter_renderDiffView): the page had no tracklist, so
+ * there is no Original column - Inserted and Candidate, and no grab bar between them, since
+ * tlImporter_addColResizers() only builds bars for three columns. The 14px the bars occupy in
+ * the three-column layout stays as the gap, so the two boxes keep the same distance.
+ * Stands AFTER the base rule and after the down rule on purpose: both name the same element
+ * with the same specificity, and the down one carries !important for the dragged inline
+ * widths. */
+#mdb-tlImporter-diff .mdb-tlImporter-cols-2 {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-column-gap: 14px;
+    column-gap: 14px;
+}
+
+/* an Insert: the block is never SEEN. Down - which is the only state an insert has, see
+ * tlImporter_downToggleWhenReady - the Inserted column has handed its text to the site's own
+ * Tracklist Editor and is hidden like every Merged one, and the Candidate goes with it,
+ * because on an insert the two are the SAME list: standing alone next to the editor holding
+ * its own text, it is a copy to read past, not something to compare against. That leaves a
+ * fieldset with nothing in it, and an empty labelled frame above the editor is a thing to
+ * explain, not a thing to read.
+ *
+ * -wait covers the seconds before that, while the editor section is still loading: the block
+ * exists (it is what hands the text over) but showing it would flash two columns that are
+ * about to disappear. It comes off when the block goes down - or, if that section never
+ * arrives at all, on the timer in tlImporter_renderDiffView, and then the block IS shown:
+ * without an editor to move to, it is the only place the inserted list and the Candidate can
+ * be read. The block always stays in the DOM either way. */
+#mdb-tlImporter-diff.mdb-tlImporter-down.mdb-tlImporter-insert,
+#mdb-tlImporter-diff.mdb-tlImporter-insert-wait {
+    display: none;
+}
+
+/* Merge mode - the way in. A LINK directly behind the label of the site's own Tracklist editor
+ * fieldset: this form is used to edit a tracklist far more often than to merge one into it, and
+ * a button among the editor's own controls would claim a weight the feature does not have.
+ * NOTHING is done to the legend itself. Stretching it to 100% to float this to the far right
+ * took the fieldset's whole top border with it - the legend IS the notch in that border, so a
+ * legend as wide as the fieldset leaves no border to notch. */
+#mdb-tlImporter-handStart {
+    margin-left: .8em;
+    font-size: 12px;
+    font-weight: normal;
+}
+
+/* the fallback, for a Tracklist Editor section that has no legend to hang the link on: a row of
+ * its own below the editor's actions, laid out like #mdb-tlImporter-downActions further down so
+ * the two never look like two different kinds of control in the same spot */
+#mdb-tlImporter-handRow {
+    display: flex;
+    align-items: center;
+    margin: 8px 0;
+}
+
+#mdb-tlImporter-handRow #mdb-tlImporter-handStart {
+    margin-left: 0;
+}
+
+/* the merge button, below BOTH columns rather than under one of the two boxes that belong
+ * together - block, full width of the block, centered. The columns carry a -10px top margin
+ * against the legend, so the air above this row is its own. */
+#mdb-tlImporter-diff #mdb-tlImporter-handActions {
+    display: block;
+    margin-top: 10px;
+    text-align: center;
+}
+
+/* the paste box wears the pres' clothes, not the Merged box's: it stands in a column where a
+ * <pre> stands in every other state of this block, and the three columns have to keep reading
+ * as one row of boxes. Its height is set in px by tlImporter_handMatchHeights(), which holds
+ * it and the Original <pre> to one measured height; resize: vertical leaves the reader the
+ * last word over it until the next keystroke measures again. */
+#mdb-tlImporter-diff textarea#mdb-tlImporter-candidate {
+    display: block;
+    width: 100%;
+    margin: 0;
+    padding: 6px 8px;
+    box-sizing: border-box;
+    font-family: monospace, monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    background-color: #fff;
+    border: 1px solid #ccc;
+    border-radius: .3em;
+    resize: vertical;
+}
+
+/* what a merge could not do, under the legend and above the columns - one line, replaced on
+ * every merge so an old reason never stands next to a new result */
+#mdb-tlImporter-diff .mdb-tlImporter-hand-note {
+    /* the same -10px the columns carry, so the note takes the spot they would have started
+     * at; their own -10px then eats 10 of the 18 below and leaves an 8px gap */
+    margin: -10px 0 18px 0;
+    padding: 6px 8px;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #664d03;
+    background-color: #fff8e1;
+    border: 1px solid #ffe1a8;
+    border-radius: .3em;
+}
+
+/* The hidden Merged column's heading and help line, copied above the site's own textarea
+ * while the block is down (tlImporter_syncDownHead). The rules above are scoped to
+ * #mdb-tlImporter-diff and this row stands outside the block, so they are repeated here.
+ *
+ * One difference on purpose: the help line WRAPS here instead of being cut with an ellipsis.
+ * The ellipsis up there protects the three columns from starting at different heights - down
+ * there is one box on the full width of the form, nothing to keep level, and a sentence cut
+ * off in the middle for no reason. */
+#mdb-tlImporter-downHead {
+    margin-top: -5px;
+    margin-bottom: 4px;
+}
+
+#mdb-tlImporter-downHead .mdb-tlImporter-col-head {
+    font-weight: bold;
+    margin-bottom: 2px;
+    text-align: center;
+}
+
+#mdb-tlImporter-downHead .mdb-tlImporter-col-help {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 6px;
+    text-align: center;
+}
+
+/* the row below #tlEditor-formActions while the block is down: the Apply button and the Live
+ * updates switch - what the Merged column has under its box, minus the state icons (the real
+ * ones under the edit box are on this very page). The chip's own rules bring the margins of
+ * a feedback box's corner along; in a flex row they only push it out of line. */
+#mdb-tlImporter-downActions {
+    display: flex;
+    align-items: center;
+    gap: .8em;
+    margin: 8px 0;
+}
+
+#mdb-tlImporter-downActions .mdb-tlEditor-liveUpdates {
+    float: none;
+    margin: 0;
+}
+
+/* down-only page rules, scoped by the body class tlImporter_applyDown toggles: air between
+ * MediaWiki's diff and the form the block now leads - and no close button on the editor's
+ * feedback box. The chips row owns that corner (the X had fallen under it), and closing a
+ * box the next live update re-renders anyway says nothing. */
+body.mdb-tlImporter-down #editform {
+    margin-top: 1em;
+}
+
+body.mdb-tlImporter-down #editToolsBar-TLeditor #tlEditor-feedback-close {
+    display: none;
+}
+
+
+/* narrow windows: three columns side by side leave each of them too thin to read a track line
+ * in, so below 900px they stack - Original, then Merged, then Candidate, the same reading order
+ * top to bottom that they have left to right. Stacked, each column has the full width and no
+ * neighbour to line up with, so the head and help line may wrap again instead of being cut. */
+@media screen and (max-width: 900px) {
+    /* !important: the dragged widths are an inline style on this element, and stacked there
+     * is only one column to be wide. The down-state selector repeats so its own two-column
+     * rule (more specific, also !important) loses here too and the block stacks either way. */
+    #mdb-tlImporter-diff .mdb-tlImporter-cols,
+    #mdb-tlImporter-diff.mdb-tlImporter-down .mdb-tlImporter-cols {
+        grid-template-columns: minmax(0, 1fr) !important;
+        grid-row-gap: 10px;
+        row-gap: 10px;
+    }
+
+    /* nothing to drag when the columns are above each other */
+    #mdb-tlImporter-diff .mdb-tlImporter-col-resizer {
+        display: none;
+    }
+
+    #mdb-tlImporter-diff .mdb-tlImporter-col-head,
+    #mdb-tlImporter-diff .mdb-tlImporter-col-help {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: clip;
+    }
+}
+
+/*
+ * Site specific rules
+ */
+body.thousandandonetracklists-com {
+    & textarea#mdb-tlImporter-report-box.mono {
+        background: var(--box-color);
+        color: #eee !important;
+    }
+
+    /* the "Identical" / "Nothing to add" note wears the green right away. On TrackId.net the
+       green is the tick machinery's doing (note-ticking/-ticked) and the fade ANNOUNCES the
+       auto-tick - here there is no integrated checkbox and nothing to announce, so the verdict
+       simply stands in the colour it ends up with over there. The note's own
+       --mdb-tlImporter-noteGreen resolves to the bright-on-dark green, which is right for
+       1001's dark theme. */
+    & .mdb-mixesdbLink-actionLinks-wrapper .mdb-tlImporter-note-integrated {
+        color: var(--mdb-tlImporter-noteGreen);
+    }
+}
