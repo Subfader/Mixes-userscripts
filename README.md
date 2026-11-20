@@ -9,11 +9,14 @@ Userscripts for mix related websites. They change the look and behaviour of site
 
 Each folder holds one userscript and a README describing its features.
 
-| Script | Runs on | What it does |
-| --- | --- | --- |
-| [SoundCloud](SoundCloud/) | soundcloud.com | Page Creator, tracklist from the description, toolkit, artwork, list filters |
-| [TrackId.net](TrackId.net/) | trackid.net, mixesdb.com | Tracklist in wiki syntax, Page Creator, player embed, integration marker, TID links under MixesDB players |
-| [hearthis.at](hearthis.at/) | hearthis.at | Page Creator, tracklist from the description, toolkit for both player URL variants |
+| Script | Update | Runs on | What it does |
+| --- | --- | --- | --- |
+| [SoundCloud](SoundCloud/) | [2026.11.18.2](https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/SoundCloud/script.user.js) | soundcloud.com | Page Creator, tracklist from the description, toolkit, artwork, list filters |
+| [TrackId.net](TrackId.net/) | [2026.11.19.1](https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/TrackId.net/script.user.js) | trackid.net, mixesdb.com | Tracklist in wiki syntax, Page Creator, player embed, integration marker, TID links under MixesDB players |
+| [hearthis.at](hearthis.at/) | [2026.11.18.5](https://raw.githubusercontent.com/Subfader/Mixes-userscripts/refs/heads/main/hearthis.at/script.user.js) | hearthis.at | Page Creator, tracklist from the description, toolkit for both player URL variants |
+
+The Update link opens the raw script, which your userscript manager offers to install or update.
+The number is the script's current `@version`.
 
 Shared across the site scripts, in [shared/](shared/): the [toolkit](shared/toolkit/), the
 [tracklist box](shared/tracklist_editor/), the [Page Creator](shared/page_creator/), the

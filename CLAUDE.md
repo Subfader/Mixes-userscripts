@@ -86,6 +86,9 @@ Userscripts that help contributors of the mixesdb.com (MixesDB) Wiki.
 
   Check the code before listing one: the `@require` list is not the answer, the call is.
 - Root `README.md` holds the table of all scripts; a new script needs a row there.
+  Its `Update` column shows each script's `@version` as the link text, pointing at the raw
+  `script.user.js` (same URL as `@updateURL`). **Every `@version` bump must also update that
+  number**, or the table advertises an old version.
 
 ## Userscript Header Conventions
 Every script must start with a complete `==UserScript==` metadata block:
