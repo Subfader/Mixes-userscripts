@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         TrackId.net
 // @author       Subfader
-// @version      2026.11.18.2
+// @version      2026.11.19.1
 // @description  Change the look and behaviour of certain DJ culture related websites to help contributing to MixesDB, e.g. add copy-paste ready tracklists in wiki syntax.
 // @homepageURL  https://www.mixesdb.com/w/Help:MixesDB_userscripts
 // @supportURL   https://discord.com/channels/1258107262833262603/1261652394799005858
@@ -2550,6 +2550,22 @@ function loadTidPaginatedGridRows( gridMain, callback ) {
     collectNextPage();
 }
 
+// mdbTid_splitTimeCell
+// TID used to show a track's start and end in two grid columns (data-field "startTime" and
+// "endTime"), which the copied table took over as td.startTime / td.endTime. Since ~Nov 2026 the
+// grid has ONE column, data-field "time", reading "0:07:11 – 0:07:46". Every cue reader in this
+// script (the tracklist builder, the gap measuring, the "?" row checks) still asks for the two
+// classes, so without the split the tracklist came out without a single cue.
+// https://trackid.net/audiostreams/subfader-the-ghetto-funk-show-20100329
+// Returns { start, end } as "h:mm:ss" strings, or null when the text is not two times, so the
+// caller can keep the cell as it was instead of inventing cues.
+function mdbTid_splitTimeCell( text ) {
+    var m = String( text || "" ).trim()
+                .match( /^(\d+:\d{2}(?::\d{2})?)\s*[\u2013\u2014-]\s*(\d+:\d{2}(?::\d{2})?)$/ );
+
+    return m ? { start: m[1], end: m[2] } : null;
+}
+
 // funcTidTables
 function funcTidTables(jNode) {
     logFunc( "funcTidTables" );
@@ -2573,6 +2589,14 @@ function funcTidTables(jNode) {
             var text = $(this).text().replace(/ /g, "").replace("CreatedOn", "Created on").replace("RequestedOn", "Requested on").replace("RequestedBy", "Requested by"),
                 textId = $(this).attr("data-field");
             if (textId == "#") textId = "Index";
+
+            // TID's combined "time" column is split into two cells per row below (see
+            // mdbTid_splitTimeCell), so its header becomes two as well to keep the columns aligned
+            if (textId == "time") {
+                tbody.append('<th id="startTime">Start</th><th id="endTime">End</th>');
+                return;
+            }
+
             if (textId) {
                 tbody.append('<th id="' + textId + '">' + text + '</th>');
             }
@@ -2613,7 +2637,19 @@ function funcTidTables(jNode) {
                 cellContent = $(this).html();
 
                 if (contOutput && cellContent) {
-                    thisTr.append('<td class="' + cellClass + '">' + cellContent + '</td>');
+                    // TID's combined "0:07:11 – 0:07:46" cell goes in as the two cells every
+                    // cue reader here looks for (.startTime / .endTime)
+                    var splitTime = cellClass == "time" ? mdbTid_splitTimeCell( $(this).text() ) : null;
+
+                    if (splitTime) {
+                        thisTr.append('<td class="startTime">' + splitTime.start + '</td>' +
+                                      '<td class="endTime">' + splitTime.end + '</td>');
+                    } else {
+                        if (cellClass == "time") {
+                            log( "mdbTid_splitTimeCell: unreadable time cell, cues stay empty: " + $(this).text() );
+                        }
+                        thisTr.append('<td class="' + cellClass + '">' + cellContent + '</td>');
+                    }
                 }
             });
 
@@ -2838,6 +2874,12 @@ function on_submitrequest() {
 
 /*
  * Changelog
+ *
+ * 2026.11.19.1
+ * Tracklist: cues are back. TID merged its "Start" and "End" grid columns into one "time" column
+ * ("0:07:11 – 0:07:46"), so the copied table had no td.startTime / td.endTime and the tracklist
+ * box came out without a single cue, every row "#". funcTidTables() splits the new cell back
+ * into the two (mdbTid_splitTimeCell). Reported on subfader-the-ghetto-funk-show-20100329.
  *
  * 2026.11.18.2
  * Toolkit (toolkit/funcs.js v134): getToolkit() refuses a player URL carrying a missing value
